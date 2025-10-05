@@ -1,0 +1,17 @@
+{
+  "name": "netflix-sync-extension",
+  "version": "0.1.0",
+  "description": "Estensione Chrome per sincronizzare video + videochat in peer-to-peer",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "webrtc-adapter": "^8.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vite": "^4.0.0",
+    "tslib": "^2.0.0"
+  }
+}

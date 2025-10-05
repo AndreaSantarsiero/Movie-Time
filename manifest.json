@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Netflix Sync + VideoChat",
+  "version": "0.1.0",
+  "description": "Sincronizza video e videochat peer-to-peer",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://*.netflix.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.netflix.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
