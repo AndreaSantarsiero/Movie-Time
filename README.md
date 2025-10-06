@@ -1,4 +1,4 @@
-# Movie Time - Netflix sync & videochat
+# Movie Time - Netflix Sync & VideoChat
 
 Estensione Chrome per sincronizzare la riproduzione di video Netflix e aggiungere una **mini videochat peer-to-peer**.  
 Permette di sincronizzare play/pause/seek tra due utenti e vedere l’altra persona in un piccolo riquadro flottante.
