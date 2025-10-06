@@ -247,6 +247,8 @@ _pkginfo.txt
 
 # Others
 ClientBin/
+dist/
+node_modules/
 ~$*
 *~
 *.dbmdl

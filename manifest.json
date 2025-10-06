@@ -12,12 +12,12 @@
     "*://*.netflix.com/*"
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "src/popup/popup.html"
   },
   "content_scripts": [
     {
       "matches": ["*://*.netflix.com/*"],
-      "js": ["content.js"]
+      "js": ["src/content/content.js"]
     }
   ]
 }
