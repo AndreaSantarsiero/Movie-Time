@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Netflix Sync + VideoChat",
+  "name": "Movie Time",
   "version": "0.1.0",
   "description": "Sincronizza video e videochat peer-to-peer",
   "permissions": [

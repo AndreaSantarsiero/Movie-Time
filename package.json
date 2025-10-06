@@ -1,5 +1,5 @@
 {
-  "name": "netflix-sync-extension",
+  "name": "movie-time",
   "version": "0.1.0",
   "description": "Estensione Chrome per sincronizzare video + videochat in peer-to-peer",
   "scripts": {
