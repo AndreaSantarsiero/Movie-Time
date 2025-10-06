@@ -1,20 +1,24 @@
 import { defineConfig } from "vite";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+import { crx } from "@crxjs/vite-plugin";
+import manifest from "./manifest.json";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 
 export default defineConfig({
-  root: ".",
+  plugins: [crx({ manifest })],
   build: {
     outDir: "dist",
     rollupOptions: {
       input: {
-        // popup html + content script entrate
-        popup: "src/popup/popup.html",
-        content: "src/content/content.ts"
+        popup: resolve(__dirname, "src/popup/popup.html"),
       },
       output: {
         entryFileNames: "[name].js",
-        chunkFileNames: "assets/[name].js",
-        assetFileNames: "assets/[name].[ext]"
-      }
-    }
-  }
+      },
+    },
+  },
 });
