@@ -1,4 +1,7 @@
 import { SyncMessage } from "../utils/types";
+import { getDataChannel } from "./webrtc";
+
+
 
 export function setupVideoSync() {
   const video = document.querySelector("video");
@@ -36,13 +39,24 @@ export function setupVideoSync() {
   });
 }
 
+
+
 // Funzioni stub — da implementare con DataChannel / signaling
-function sendSync(msg: SyncMessage) {
-  // TODO: invia messaggio al peer tramite DataChannel
-  console.log("sendSync:", msg);
+export function sendSync(msg: SyncMessage) {
+  const dc = getDataChannel();
+  if (dc?.readyState === "open") dc.send(JSON.stringify(msg));
 }
 
-function receiveSync(callback: (msg: SyncMessage) => void) {
-  // TODO: ascolta messaggi in arrivo da DataChannel
-  // esempio: dataChannel.onmessage = ev => callback(JSON.parse(ev.data))
+
+export function receiveSync(callback: (msg: SyncMessage) => void) {
+  const dc = getDataChannel();
+  if (!dc) return;
+  dc.onmessage = (e) => {
+    try {
+      const msg: SyncMessage = JSON.parse(e.data);
+      callback(msg);
+    } catch (err) {
+      console.warn("Invalid sync message", e.data);
+    }
+  };
 }
