@@ -3,21 +3,15 @@
   "name": "Movie Time",
   "version": "0.1.0",
   "description": "Sincronizza video e videochat peer-to-peer",
-  "permissions": [
-    "storage",
-    "scripting",
-    "activeTab"
-  ],
-  "host_permissions": [
-    "*://*.netflix.com/*"
-  ],
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": ["*://*.netflix.com/*"],
   "action": {
     "default_popup": "src/popup/popup.html"
   },
   "content_scripts": [
     {
       "matches": ["*://*.netflix.com/*"],
-      "js": ["src/content/content.js"]
+      "js": ["content.js"]
     }
   ]
 }
