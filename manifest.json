@@ -1,17 +1,31 @@
 {
   "manifest_version": 3,
   "name": "Movie Time",
-  "version": "0.1.0",
-  "description": "Sincronizza video e videochat peer-to-peer",
+  "version": "0.2.0",
+  "description": "Guarda Netflix in sync e videochat peer-to-peer",
   "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["*://*.netflix.com/*"],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
   "action": {
     "default_popup": "src/popup/popup.html"
   },
+
   "content_scripts": [
     {
       "matches": ["*://*.netflix.com/*"],
       "js": ["content.js"]
+    }
+  ],
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["overlayBridge.js"],
+      "matches": ["*://*.netflix.com/*"]
     }
   ]
 }

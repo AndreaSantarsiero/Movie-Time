@@ -1,110 +1,66 @@
-import "./popup.css";
+console.log("[Popup] Loaded");
 
-const btnCreate = document.getElementById("btn-create") as HTMLButtonElement;
-const btnConnect = document.getElementById("btn-connect") as HTMLButtonElement;
-const taOffer = document.getElementById("offer") as HTMLTextAreaElement;
-const taAnswer = document.getElementById("answer") as HTMLTextAreaElement;
-const statusDiv = document.getElementById("status")!;
+const createBtn = document.getElementById("btn-create") as HTMLButtonElement;
+const connectBtn = document.getElementById("btn-connect") as HTMLButtonElement;
+const genAnswerBtn = document.getElementById("btn-generate-answer") as HTMLButtonElement;
 
-
-
-let pc: RTCPeerConnection;
-let dataChannel: RTCDataChannel;
-
-function setStatus(text: string) {
-  console.log("[Popup] " + text);
-  statusDiv.textContent = text;
-}
+const offerEl = document.getElementById("offer") as HTMLTextAreaElement;
+const answerEl = document.getElementById("answer") as HTMLTextAreaElement;
+const incomingOfferEl = document.getElementById("incoming-offer") as HTMLTextAreaElement;
+const answerForPeerEl = document.getElementById("answer-for-peer") as HTMLTextAreaElement;
+const statusEl = document.getElementById("status") as HTMLElement;
 
 
 
-/** Crea una nuova sessione (offerta SDP) */
-btnCreate.addEventListener("click", async () => {
-  try {
-    pc = new RTCPeerConnection();
-    dataChannel = pc.createDataChannel("sync");
-    dataChannel.onopen = () => setStatus("Canale dati aperto");
-    dataChannel.onmessage = (ev) => console.log("[DataChannel] RX:", ev.data);
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    // 🔸 Mostra versione abbreviata solo per copia/incolla
-    const sdpBase64 = btoa(JSON.stringify(offer));
-    taOffer.value = sdpBase64;
-
-    setStatus("Offerta pronta — copia e inviala all'altra persona");
-
-  } catch (err) {
-    console.error(err);
-    setStatus("Errore durante la creazione dell'offerta");
-  }
-});
+(document.getElementById("choose-create") as HTMLButtonElement).onclick = () => {
+  document.getElementById("step-choice")!.style.display = "none";
+  document.getElementById("step-create")!.style.display = "block";
+};
+(document.getElementById("choose-connect") as HTMLButtonElement).onclick = () => {
+  document.getElementById("step-choice")!.style.display = "none";
+  document.getElementById("step-join")!.style.display = "block";
+};
 
 
 
-/** Collega un answer ricevuto (base64) */
-btnConnect.addEventListener("click", async () => {
-  try {
-    if (!pc) {
-      pc = new RTCPeerConnection();
-      pc.ondatachannel = (ev) => {
-        dataChannel = ev.channel;
-        dataChannel.onopen = () => setStatus("✅ Connesso");
-        dataChannel.onmessage = (ev) => console.log("[DataChannel] RX:", ev.data);
-      };
+createBtn.onclick = () => {
+  console.log("[Popup] CREATE_SESSION sent");
+  chrome.runtime.sendMessage({ type: "CREATE_SESSION" }, (res) => {
+    console.log("[Popup] CREATE_SESSION resp:", res);
+    if (res?.offer) {
+      offerEl.value = JSON.stringify(res.offer);
+      statusEl.innerText = "✅ Offer created. Copy and share it.";
+    } else {
+      statusEl.innerText = `❌ Failed to create offer: ${res?.error ?? "unknown"}`;
     }
+  });
+};
 
-    const text = taAnswer.value.trim();
-    if (!text) {
-      setStatus("Incolla prima la risposta (answer)");
-      return;
+
+
+connectBtn.onclick = () => {
+  const answer = answerEl.value.trim();
+  if (!answer) return alert("Paste the answer first!");
+  console.log("[Popup] APPLY_ANSWER sent");
+  chrome.runtime.sendMessage({ type: "APPLY_ANSWER", answer }, (res) => {
+    console.log("[Popup] APPLY_ANSWER resp:", res);
+    statusEl.innerText = res?.ok ? "🔗 Answer applied" : `❌ ${res?.error ?? "apply failed"}`;
+  });
+};
+
+
+
+genAnswerBtn.onclick = () => {
+  const offer = incomingOfferEl.value.trim();
+  if (!offer) return alert("Paste the offer first!");
+  console.log("[Popup] CONNECT_SESSION sent");
+  chrome.runtime.sendMessage({ type: "CONNECT_SESSION", offer }, (res) => {
+    console.log("[Popup] CONNECT_SESSION resp:", res);
+    if (res?.answer) {
+      answerForPeerEl.value = JSON.stringify(res.answer);
+      statusEl.innerText = "✅ Answer generated. Send it back.";
+    } else {
+      statusEl.innerText = `❌ Failed to generate answer: ${res?.error ?? "unknown"}`;
     }
-
-    // 🔸 Decodifica base64 e applica
-    const answer = JSON.parse(atob(text));
-    await pc.setRemoteDescription(answer);
-
-    setStatus("Connessione in corso…");
-
-    pc.onconnectionstatechange = () => {
-      setStatus("Stato: " + pc.connectionState);
-      if (pc.connectionState === "connected") setStatus("🎬 Connessione P2P stabilita!");
-    };
-
-  } catch (err) {
-    console.error(err);
-    setStatus("Formato non valido o errore di connessione");
-  }
-});
-
-
-
-/** Gestisce una offerta ricevuta (per l’altro peer) */
-async function handleIncomingOffer(base64Offer: string) {
-  try {
-    const offer = JSON.parse(atob(base64Offer));
-    pc = new RTCPeerConnection();
-
-    pc.ondatachannel = (ev) => {
-      dataChannel = ev.channel;
-      dataChannel.onopen = () => setStatus("✅ Connesso");
-      dataChannel.onmessage = (ev) => console.log("[DataChannel] RX:", ev.data);
-    };
-
-    await pc.setRemoteDescription(offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    // 🔸 Mostra risposta in formato base64
-    taAnswer.value = btoa(JSON.stringify(answer));
-    setStatus("Answer generata — inviala all'altro peer");
-
-  } catch (err) {
-    console.error(err);
-    setStatus("Errore nella gestione dell'offerta");
-  }
-}
-
-
-(window as any).handleIncomingOffer = handleIncomingOffer;
+  });
+};

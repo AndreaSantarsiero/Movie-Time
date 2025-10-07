@@ -1,23 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
 
-<head>
-  <meta charset="UTF-8" />
-  <title>Movie Time</title>
-  <script type="module" src="popup.js"></script>
-  <link rel="stylesheet" href="popup.css" />
-</head>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Movie Time</title>
+    <script type="module" src="popup.js"></script>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
 
-<body>
-  <h1> It's Movie Time</h1>
+  
+  <body>
+    <h1>It's Movie Time</h1>
 
-  <button id="btn-create">🎬 Crea Sessione</button>
-  <textarea id="offer" placeholder="Chiave generata (copiala e inviala)"></textarea>
+    <!-- Step 0: scelta iniziale -->
+    <div id="step-choice">
+      <button id="choose-create">🎬 Create Session</button>
+      <button id="choose-connect">🔗 Connect to Session</button>
+    </div>
 
-  <textarea id="answer" placeholder="Incolla qui la tua chiave"></textarea>
-  <button id="btn-connect">🔗 Connetti</button>
+    <!-- Step 1a: creare sessione -->
+    <div id="step-create" style="display:none">
+      <button id="btn-create">Generate Offer</button>
+      <textarea id="offer" placeholder="Copy this key and send it"></textarea>
+      <textarea id="answer" placeholder="Paste the answer here"></textarea>
+      <button id="btn-connect">Connect</button>
+    </div>
 
-  <div id="status">Pronto</div>
-  <script type="module" src="popup.js"></script>
-</body>
+    <!-- Step 1b: connettersi a sessione esistente -->
+    <div id="step-join" style="display:none">
+      <textarea id="incoming-offer" placeholder="Paste the offer here"></textarea>
+      <button id="btn-generate-answer">Generate Answer</button>
+      <textarea id="answer-for-peer" placeholder="Send this answer back"></textarea>
+    </div>
+
+    <div id="status">Ready</div>
+  </body>
 </html>
