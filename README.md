@@ -111,25 +111,6 @@ and the overlay takes over inside Netflix.
 
 ---------------------------------------------------------------------
 
-## 🧱 Project Structure
-
-📦 movie-time-extension  
- ┣ 📂 src  
- ┃ ┣ 📂 popup  
- ┃ ┃ ┣ popup.html  
- ┃ ┃ ┣ popup.ts  
- ┃ ┃ ┗ popup.css  
- ┃ ┣ 📂 content  
- ┃ ┃ ┗ content.ts  
- ┃ ┣ 📂 webrtc  
- ┃ ┃ ┗ connection.ts  
- ┃ ┗ overlay.ts  
- ┣ manifest.json  
- ┣ vite.config.ts  
- ┗ README.md  
-
----------------------------------------------------------------------
-
 ## 🔍 Technical Notes
 
 - The STUN server (stun:stun.l.google.com:19302) is used for ICE candidate gathering.

@@ -6,7 +6,9 @@ console.log("[Content] Loaded start");
 
 
 
-// 1) PING handler: PRIMA di tutto
+/**
+ * 1) PING handler: PRIMA di tutto
+ */
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "PING") {
     console.log("[Content] PING → PONG");
@@ -16,17 +18,65 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 
 
-// 2) Global error logs (se qualcosa crasha prima dei listener)
-window.addEventListener("error", (e) => {
-  console.error("[Content] window.onerror:", e.message, e.error);
+/**
+ * 2) HANDLER EARLY per i messaggi dal BG (CREATE_SESSION / CONNECT_SESSION / APPLY_ANSWER)
+ *    — registrato SUBITO a livello top, così il BG non prende più "message port closed".
+ *    — IMPORTANTISSIMO: return true per tenere aperta la porta finché non chiamiamo sendResponse.
+ */
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  // ignoriamo i messaggi che non ci interessano qui
+  if (!msg || (msg.type !== "CREATE_SESSION" && msg.type !== "CONNECT_SESSION" && msg.type !== "APPLY_ANSWER")) {
+    return; // no return true => porta chiusa subito, ma va bene per msg non gestiti qui
+  }
+
+  console.log("[Content] Message from BG (early handler):", msg);
+
+  (async () => {
+    try {
+      if (msg.type === "CREATE_SESSION") {
+        const rtc = getSingletonRTC() ?? new RTCLink();
+        console.log("[Content] Creating offer...");
+        const offer = await rtc.createOffer(); // solo DataChannel
+        console.log("[Content] Offer created:", offer?.type);
+        sendResponse?.({ offer });
+        return;
+      }
+
+      if (msg.type === "CONNECT_SESSION") {
+        const rtc = getSingletonRTC() ?? new RTCLink();
+        const offerObj = JSON.parse(msg.offer);
+        console.log("[Content] Applying remote offer & creating answer...");
+        const answer = await rtc.applyRemote(offerObj); // ritorna l'answer
+        console.log("[Content] Answer ready");
+        sendResponse?.({ answer });
+        return;
+      }
+
+      if (msg.type === "APPLY_ANSWER") {
+        const rtc = getSingletonRTC() ?? new RTCLink();
+        const ans = JSON.parse(msg.answer);
+        console.log("[Content] Applying remote answer...");
+        await rtc.applyRemote(ans);
+        console.log("[Content] Answer applied OK");
+        sendResponse?.({ ok: true });
+        return;
+      }
+    } catch (err: any) {
+      console.error("[Content] Handler error:", err);
+      try { sendResponse?.({ error: String(err?.message ?? err) }); } catch {}
+    }
+  })();
+
+  // Mantiene aperta la porta per la risposta async
+  return true;
 });
-window.addEventListener("unhandledrejection", (e) => {
-  console.error("[Content] unhandledrejection:", e.reason);
-});
 
 
 
-// 3) Init sicuro
+/**
+ * 3) Init sicuro del resto (bridge/overlay/videosync)
+ *    — lasciamo invariato, ma anche se fallisse qualcosa qui, l’handler early sopra è già attivo.
+ */
 (function init() {
   try {
     console.log("[Content] Registering tab");
@@ -43,7 +93,7 @@ window.addEventListener("unhandledrejection", (e) => {
       console.error("[Content] Failed to inject overlayBridge:", e);
     }
 
-    // Bridge → BG (per eventuale sync)
+    // Bridge → BG (per eventuale sync/log)
     window.addEventListener("message", (ev) => {
       if (ev.data?.source !== "movie-time-bridge") return;
       console.log("[Content] From page:", ev.data);
@@ -52,61 +102,14 @@ window.addEventListener("unhandledrejection", (e) => {
       }
     });
 
-
-    // 4) Listener per messaggi dal BG (IMPORTANT: return true SUBITO)
-    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      console.log("[Content] Message from BG:", msg);
-      (async () => {
-        try {
-          if (msg.type === "CREATE_SESSION") {
-            const rtc = getSingletonRTC() ?? new RTCLink();
-            console.log("[Content] Creating offer...");
-            const offer = await rtc.createOffer(); // solo DataChannel, niente media
-            console.log("[Content] Offer created:", offer?.type);
-            sendResponse?.({ offer });
-            return;
-          }
-
-          if (msg.type === "CONNECT_SESSION") {
-            const rtc = getSingletonRTC() ?? new RTCLink();
-            const offerObj = JSON.parse(msg.offer);
-            console.log("[Content] Applying remote offer...");
-            const answer = await rtc.applyRemote(offerObj);
-            console.log("[Content] Answer generated:", answer?.type);
-            sendResponse?.({ answer });
-            return;
-          }
-
-          if (msg.type === "APPLY_ANSWER") {
-            const rtc = getSingletonRTC() ?? new RTCLink();
-            const ans = JSON.parse(msg.answer);
-            console.log("[Content] Applying remote answer...");
-            await rtc.applyRemote(ans);
-            console.log("[Content] Answer applied OK");
-            sendResponse?.({ ok: true });
-            return;
-          }
-
-          console.warn("[Content] Unknown message:", msg);
-          sendResponse?.({ ok: false, error: "UNKNOWN_MESSAGE" });
-        } catch (err: any) {
-          console.error("[Content] Handler error:", err);
-          try { sendResponse?.({ error: String(err?.message ?? err) }); } catch {}
-        }
-      })();
-
-      return true; // Mantiene aperta la porta per la risposta async
-    });
-
-    
-    // 5) Overlay e sync (non bloccanti)
+    // Overlay UI
     try {
       createOverlay();
-      console.log("[Content] Overlay created");
     } catch (e) {
       console.error("[Content] Overlay failed:", e);
     }
 
+    // Video sync (messaggi page<->content)
     try {
       setupVideoSync();
       console.log("[Content] VideoSync set up");

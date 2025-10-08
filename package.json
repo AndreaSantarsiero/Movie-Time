@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "description": "Estensione Chrome per sincronizzare video + videochat in peer-to-peer",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && cp manifest.json dist/"
+    "build:popup": "vite build --mode popup",
+    "build:content": "vite build --mode content",
+    "build:background": "vite build --mode background",
+    "build:bridge": "vite build --mode bridge",
+    "build": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && cp manifest.json dist/"
   },
   "dependencies": {
     "webrtc-adapter": "^8.0.0"

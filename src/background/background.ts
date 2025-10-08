@@ -1,40 +1,7 @@
 console.log("[BG] Service Worker started");
 
-
-
-async function ensureContentReady(tabId: number): Promise<boolean> {
-  try {
-    console.log("[BG] Injecting content.js into tab:", tabId);
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
-    console.log("[BG] content.js injected");
-  } catch (err) {
-    console.warn("[BG] content.js injection error (maybe already loaded):", err);
-  }
-
-  // PING inline di emergenza, così abbiamo SEMPRE un responder
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        // @ts-ignore
-        if (!(window as any).__movieTimePingInstalled) {
-          // @ts-ignore
-          (window as any).__movieTimePingInstalled = true;
-          chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-            if (msg?.type === "PING") {
-              console.log("[ContentBootstrap] PING → PONG");
-              sendResponse({ pong: true });
-            }
-          });
-          console.log("[ContentBootstrap] PING handler installed");
-        }
-      },
-    });
-    console.log("[BG] Inline PING handler injected");
-  } catch (err) {
-    console.error("[BG] Failed to inject inline PING handler:", err);
-  }
-
+/** Pinga il content script fino a 10 volte per ~1.5s */
+async function waitForContent(tabId: number): Promise<boolean> {
   for (let i = 1; i <= 10; i++) {
     const ok = await new Promise<boolean>((resolve) => {
       chrome.tabs.sendMessage(tabId, { type: "PING" }, (res) => {
@@ -46,18 +13,13 @@ async function ensureContentReady(tabId: number): Promise<boolean> {
     if (ok) return true;
     await new Promise((r) => setTimeout(r, 150));
   }
-  console.warn("[BG] Content script did not respond to PING");
   return false;
 }
-
-
 
 async function getActiveTabId(): Promise<number | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab?.id ?? null;
 }
-
-
 
 chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
   console.log("[BG] Message received:", msg);
@@ -70,10 +32,14 @@ chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
       return;
     }
 
-    const ready = await ensureContentReady(tabId);
+    // ❗️ NON iniettiamo più content.js. Aspettiamo che sia attivo (manifest lo carica).
+    const ready = await waitForContent(tabId);
     if (!ready) {
-      console.error("[BG] Content not ready, abort");
-      sendResponse?.({ error: "CONTENT_NOT_READY" });
+      console.error("[BG] Content not ready on this page");
+      sendResponse?.({
+        error: "CONTENT_NOT_READY",
+        hint: "Ricarica la pagina Netflix e riprova (il content script viene caricato dal manifest).",
+      });
       return;
     }
 
@@ -81,7 +47,7 @@ chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
     chrome.tabs.sendMessage(tabId, msg, (res) => {
       const err = chrome.runtime.lastError;
       if (err) {
-        console.error("[BG] sendMessage error:", err.message);
+        console.error("[BG] sendMessage error:", err, err.message);
         sendResponse?.({ error: err.message });
         return;
       }
