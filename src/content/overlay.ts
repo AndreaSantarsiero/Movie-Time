@@ -1,3 +1,7 @@
+import { setLocalStream, onRemoteStream } from "./webrtc";
+
+
+
 export function createOverlay() {
 
   if (document.getElementById("movie-time-overlay")) return;
@@ -24,7 +28,7 @@ export function createOverlay() {
   shadow.innerHTML = `
     <style>
       * { box-sizing: border-box; font-family: sans-serif; }
-      #wrapper { display: flex; flex-direction: column; height: 100%; }
+      #wrapper { display: flex; flex-direction: column; height: 100%; position: relative; }
       video {
         width: 100%; height: 100%;
         background: black; object-fit: cover;
@@ -58,9 +62,8 @@ export function createOverlay() {
 
   document.body.appendChild(container);
 
-  // rendi draggable
-  let isDragging = false;
-  let offsetX = 0, offsetY = 0;
+  // drag…
+  let isDragging = false, offsetX = 0, offsetY = 0;
   container.addEventListener("mousedown", (e) => {
     if ((e.target as HTMLElement).tagName === "BUTTON") return;
     isDragging = true;
@@ -74,15 +77,13 @@ export function createOverlay() {
   });
   window.addEventListener("mouseup", () => (isDragging = false));
 
-
-
-  const remote = shadow.getElementById("remote") as HTMLVideoElement;
   const local = shadow.getElementById("local") as HTMLVideoElement;
+  const remote = shadow.getElementById("remote") as HTMLVideoElement;
   const btnMute = shadow.getElementById("mute") as HTMLButtonElement;
   const btnCam = shadow.getElementById("cam") as HTMLButtonElement;
   const btnClose = shadow.getElementById("close") as HTMLButtonElement;
 
-  // attiva videochat
+  // Avvia videochat
   initVideoChat(local, remote);
 
   btnMute.onclick = () => toggleMute(local);
@@ -93,17 +94,44 @@ export function createOverlay() {
 
 
 async function initVideoChat(local: HTMLVideoElement, remote: HTMLVideoElement) {
+  // Chiede webcam + microfono (l’utente deve consentire)
   const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   local.srcObject = stream;
-  window.postMessage({ source: "movie-time-content", type: "LOCAL_STREAM_READY" }, "*");
 
-  // questo evento arriverà da webrtc.ts (quando il remote stream arriva)
-  window.addEventListener("message", (ev) => {
-    if (ev.data?.source !== "movie-time-content") return;
-    if (ev.data.type === "REMOTE_STREAM") {
-      remote.srcObject = ev.data.stream;
-    }
+  // Passa lo stream al layer WebRTC
+  setLocalStream(stream);
+
+  // Quando arriva il remoto, mostrane il video
+  onRemoteStream((s) => {
+    remote.srcObject = s;
+    remote.muted = false; // vuoi sentire l'altra persona
+    const tryPlay = () => remote.play().catch((err) => {
+      console.warn("[Overlay] Autoplay blocked:", err?.name);
+      // Mostra un pulsante "Avvia"
+      showClickToStart(remote);
+    });
+    if (remote.readyState >= 2) tryPlay();
+    else remote.onloadedmetadata = () => tryPlay();
   });
+
+  function showClickToStart(videoEl: HTMLVideoElement) {
+    const btn = document.createElement("button");
+    btn.textContent = "Avvia chiamata";
+    btn.style.position = "absolute";
+    btn.style.left = "50%";
+    btn.style.top = "50%";
+    btn.style.transform = "translate(-50%, -50%)";
+    btn.style.padding = "8px 12px";
+    btn.style.borderRadius = "8px";
+    btn.style.border = "none";
+    btn.style.cursor = "pointer";
+    btn.style.background = "rgba(255,255,255,0.85)";
+    btn.onclick = () => {
+      videoEl.play().catch((e) => console.error("play() failed", e));
+      btn.remove();
+    };
+    videoEl.parentElement?.appendChild(btn);
+  }
 }
 
 

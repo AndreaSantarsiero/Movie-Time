@@ -1,4 +1,4 @@
-import { RTCLink, getSingletonRTC } from "./webrtc";
+import { RTCLink, getSingletonRTC, waitForLocalStream } from "./webrtc";
 import { setupVideoSync } from "./videoSync";
 import { createOverlay } from "./overlay";
 
@@ -28,28 +28,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   (async () => {
     try {
+      // CREATE_SESSION
       if (msg.type === "CREATE_SESSION") {
         const rtc = getSingletonRTC() ?? new RTCLink();
         console.log("[Content] Creating offer...");
-        const offer = await rtc.createOffer(); // solo DataChannel: non servono tracce locali
+        await waitForLocalStream(10000);
+        const offer = await rtc.createOffer();
         console.log("[Content] Offer created:", offer?.type);
         sendResponse({ offer });
         return;
       }
 
+      // CONNECT_SESSION (genera l’answer a partire dall’offerta ricevuta)
       if (msg.type === "CONNECT_SESSION") {
         const rtc = getSingletonRTC() ?? new RTCLink();
         const offerObj = typeof msg.offer === "string" ? JSON.parse(msg.offer) : msg.offer;
         console.log("[Content] Applying remote offer & creating answer...");
+        await waitForLocalStream(10000);
         const answer = await rtc.applyRemote(offerObj);
         console.log("[Content] Answer ready");
         sendResponse({ answer });
         return;
       }
 
+      // APPLY_ANSWER (lato caller, non serve attendere la webcam qui)
       if (msg.type === "APPLY_ANSWER") {
         const rtc = getSingletonRTC() ?? new RTCLink();
-        // ⚠️ FIX TYPO: JSO → JSON
         const ansObj = typeof msg.answer === "string" ? JSON.parse(msg.answer) : msg.answer;
         console.log("[Content] Applying remote answer...");
         await rtc.applyRemote(ansObj);
@@ -92,7 +96,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // Bridge → BG (per eventuale sync/log)
     window.addEventListener("message", (ev) => {
       if (ev.data?.source !== "movie-time-bridge") return;
-      console.log("[Content] From page:", ev.data);
+      //console.log("[Content] From page:", ev.data);
       if (ev.data.type === "SYNC_EVENT") {
         chrome.runtime.sendMessage({ type: "SYNC_EVENT", data: ev.data });
       }
