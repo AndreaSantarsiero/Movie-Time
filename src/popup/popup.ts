@@ -41,7 +41,6 @@ createBtn.onclick = () => {
 };
 
 
-
 connectBtn.onclick = () => {
   const answer = answerEl.value.trim();
   if (!answer) return alert("Paste the answer first!");
@@ -55,7 +54,6 @@ connectBtn.onclick = () => {
     statusEl.innerText = res?.ok ? "✅ Connected!" : `❌ Failed to apply answer: ${res?.error ?? "NO_RESPONSE"}`;
   });
 };
-
 
 
 genAnswerBtn.onclick = () => {
@@ -76,3 +74,26 @@ genAnswerBtn.onclick = () => {
     }
   });
 };
+
+
+
+function encodeOfferForShare(obj: any): string {
+  const json = JSON.stringify(obj);
+  const bytes = new TextEncoder().encode(json);
+  // Base64
+  let b64 = btoa(String.fromCharCode(...bytes));
+  // URL-safe (comodo per WhatsApp/Telegram)
+  b64 = b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return b64;
+}
+
+
+function decodeOfferFromShare(b64url: string): any {
+  let b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  // reintegra padding
+  while (b64.length % 4) b64 += "=";
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  const json = new TextDecoder().decode(bytes);
+  return JSON.parse(json);
+}
