@@ -26,12 +26,16 @@ const statusEl = document.getElementById("status") as HTMLElement;
 createBtn.onclick = () => {
   console.log("[Popup] CREATE_SESSION sent");
   chrome.runtime.sendMessage({ type: "CREATE_SESSION" }, (res) => {
+    if (chrome.runtime.lastError) {
+      statusEl.innerText = `❌ Failed to create offer: ${chrome.runtime.lastError.message}`;
+      return;
+    }
     console.log("[Popup] CREATE_SESSION resp:", res);
     if (res?.offer) {
       offerEl.value = JSON.stringify(res.offer);
       statusEl.innerText = "✅ Offer created. Copy and share it.";
     } else {
-      statusEl.innerText = `❌ Failed to create offer: ${res?.error ?? "unknown"}`;
+      statusEl.innerText = `❌ Failed to create offer: ${res?.error ?? "NO_RESPONSE"}`;
     }
   });
 };
@@ -43,8 +47,12 @@ connectBtn.onclick = () => {
   if (!answer) return alert("Paste the answer first!");
   console.log("[Popup] APPLY_ANSWER sent");
   chrome.runtime.sendMessage({ type: "APPLY_ANSWER", answer }, (res) => {
+    if (chrome.runtime.lastError) {
+      statusEl.innerText = `❌ Failed to apply answer: ${chrome.runtime.lastError.message}`;
+      return;
+    }
     console.log("[Popup] APPLY_ANSWER resp:", res);
-    statusEl.innerText = res?.ok ? "🔗 Answer applied" : `❌ ${res?.error ?? "apply failed"}`;
+    statusEl.innerText = res?.ok ? "✅ Connected!" : `❌ Failed to apply answer: ${res?.error ?? "NO_RESPONSE"}`;
   });
 };
 
@@ -55,12 +63,16 @@ genAnswerBtn.onclick = () => {
   if (!offer) return alert("Paste the offer first!");
   console.log("[Popup] CONNECT_SESSION sent");
   chrome.runtime.sendMessage({ type: "CONNECT_SESSION", offer }, (res) => {
+    if (chrome.runtime.lastError) {
+      statusEl.innerText = `❌ Failed to generate answer: ${chrome.runtime.lastError.message}`;
+      return;
+    }
     console.log("[Popup] CONNECT_SESSION resp:", res);
     if (res?.answer) {
       answerForPeerEl.value = JSON.stringify(res.answer);
       statusEl.innerText = "✅ Answer generated. Send it back.";
     } else {
-      statusEl.innerText = `❌ Failed to generate answer: ${res?.error ?? "unknown"}`;
+      statusEl.innerText = `❌ Failed to generate answer: ${res?.error ?? "NO_RESPONSE"}`;
     }
   });
 };

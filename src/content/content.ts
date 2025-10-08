@@ -18,15 +18,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 
 
-/**
- * 2) HANDLER EARLY per i messaggi dal BG (CREATE_SESSION / CONNECT_SESSION / APPLY_ANSWER)
- *    — registrato SUBITO a livello top, così il BG non prende più "message port closed".
- *    — IMPORTANTISSIMO: return true per tenere aperta la porta finché non chiamiamo sendResponse.
- */
+// HANDLER EARLY: CREATE_SESSION / CONNECT_SESSION / APPLY_ANSWER
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  // ignoriamo i messaggi che non ci interessano qui
-  if (!msg || (msg.type !== "CREATE_SESSION" && msg.type !== "CONNECT_SESSION" && msg.type !== "APPLY_ANSWER")) {
-    return; // no return true => porta chiusa subito, ma va bene per msg non gestiti qui
+  if (!msg || !["CREATE_SESSION", "CONNECT_SESSION", "APPLY_ANSWER"].includes(msg.type)) {
+    return; // ignoriamo altri messaggi qui
   }
 
   console.log("[Content] Message from BG (early handler):", msg);
@@ -36,38 +31,39 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.type === "CREATE_SESSION") {
         const rtc = getSingletonRTC() ?? new RTCLink();
         console.log("[Content] Creating offer...");
-        const offer = await rtc.createOffer(); // solo DataChannel
+        const offer = await rtc.createOffer(); // solo DataChannel: non servono tracce locali
         console.log("[Content] Offer created:", offer?.type);
-        sendResponse?.({ offer });
+        sendResponse({ offer });
         return;
       }
 
       if (msg.type === "CONNECT_SESSION") {
         const rtc = getSingletonRTC() ?? new RTCLink();
-        const offerObj = JSON.parse(msg.offer);
+        const offerObj = typeof msg.offer === "string" ? JSON.parse(msg.offer) : msg.offer;
         console.log("[Content] Applying remote offer & creating answer...");
-        const answer = await rtc.applyRemote(offerObj); // ritorna l'answer
+        const answer = await rtc.applyRemote(offerObj);
         console.log("[Content] Answer ready");
-        sendResponse?.({ answer });
+        sendResponse({ answer });
         return;
       }
 
       if (msg.type === "APPLY_ANSWER") {
         const rtc = getSingletonRTC() ?? new RTCLink();
-        const ans = JSON.parse(msg.answer);
+        // ⚠️ FIX TYPO: JSO → JSON
+        const ansObj = typeof msg.answer === "string" ? JSON.parse(msg.answer) : msg.answer;
         console.log("[Content] Applying remote answer...");
-        await rtc.applyRemote(ans);
-        console.log("[Content] Answer applied OK");
-        sendResponse?.({ ok: true });
+        await rtc.applyRemote(ansObj);
+        console.log("[Content] Answer applied");
+        sendResponse({ ok: true });
         return;
       }
     } catch (err: any) {
-      console.error("[Content] Handler error:", err);
-      try { sendResponse?.({ error: String(err?.message ?? err) }); } catch {}
+      console.error("[Content] Signaling error:", err);
+      sendResponse({ error: err?.message ?? String(err) });
     }
   })();
 
-  // Mantiene aperta la porta per la risposta async
+  // IMPORTANTISSIMO: porta aperta SUBITO
   return true;
 });
 
