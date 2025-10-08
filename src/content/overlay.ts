@@ -9,7 +9,7 @@ export function createOverlay() {
   const container = document.createElement("div");
   container.id = "movie-time-overlay";
   container.style.position = "fixed";
-  container.style.top = "20px";
+  container.style.top = "70px";
   container.style.right = "20px";
   container.style.zIndex = "2147483647";
   container.style.width = "300px";
@@ -35,7 +35,11 @@ export function createOverlay() {
         background: black; object-fit: cover;
         border-radius: 8px;
       }
-      #local { position: absolute; bottom: 10px; right: 10px; width: 80px; height: 60px; border: 2px solid white; }
+      #local { 
+        position: absolute; bottom: 10px; right: 10px; width: 80px; height: 60px; border: 2px solid white;
+        transform: scaleX(-1);
+        transform-origin: center;
+      }
       #controls {
         display: flex; justify-content: space-around;
         padding: 4px; background: rgba(0,0,0,0.4);
@@ -47,6 +51,8 @@ export function createOverlay() {
         padding: 4px 6px; cursor: pointer;
       }
       button:hover { background: rgba(255,255,255,0.25); }
+      button.off { background: rgba(255, 60, 60, 0.35); }
+      button.off:hover { background: rgba(255, 60, 60, 0.5); }
     </style>
     <div id="wrapper">
       <video id="remote" autoplay playsinline></video>
@@ -87,8 +93,8 @@ export function createOverlay() {
   // Avvia videochat
   initVideoChat(local, remote);
 
-  btnMute.onclick = () => toggleMute(local);
-  btnCam.onclick = () => toggleCam(local);
+  btnMute.onclick = () => toggleMute(local, btnMute);
+  btnCam.onclick = () => toggleCam(local, btnCam);
   btnClose.onclick = () => container.remove();
 }
 
@@ -137,16 +143,30 @@ async function initVideoChat(local: HTMLVideoElement, remote: HTMLVideoElement) 
 
 
 
-function toggleMute(local: HTMLVideoElement) {
+function toggleMute(local: HTMLVideoElement, btn?: HTMLButtonElement) {
   const stream = local.srcObject as MediaStream;
   if (!stream) return;
+  // flip stato audio
   stream.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
+  // aggiorna sfondo bottone (rosso se OFF)
+  if (btn) {
+    const micOn = stream.getAudioTracks().some((t) => t.enabled);
+    btn.classList.toggle("off", !micOn);
+    btn.setAttribute("aria-pressed", String(!micOn));
+  }
 }
 
 
 
-function toggleCam(local: HTMLVideoElement) {
+function toggleCam(local: HTMLVideoElement, btn?: HTMLButtonElement) {
   const stream = local.srcObject as MediaStream;
   if (!stream) return;
+  // flip stato video
   stream.getVideoTracks().forEach((t) => (t.enabled = !t.enabled));
+  // aggiorna sfondo bottone (rosso se OFF)
+  if (btn) {
+    const camOn = stream.getVideoTracks().some((t) => t.enabled);
+    btn.classList.toggle("off", !camOn);
+    btn.setAttribute("aria-pressed", String(!camOn));
+  }
 }
