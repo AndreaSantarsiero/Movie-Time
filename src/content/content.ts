@@ -2,6 +2,7 @@ import { RTCLink, getSingletonRTC, waitForLocalStream } from "./webrtc";
 import { setupVideoSync } from "./videoSync";
 import { createOverlay } from "./overlay";
 
+let __relocationSetupDone = false;
 console.log("[Content] Loaded start");
 
 
@@ -105,6 +106,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // Overlay UI
     try {
       createOverlay();
+      setupOverlayRelocation();
     } catch (e) {
       console.error("[Content] Overlay failed:", e);
     }
@@ -122,3 +124,67 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     console.error("[Content] Fatal init error:", err);
   }
 })();
+
+
+
+/**
+ * —— Overlay relocation per il fullscreen ——
+ * Mantiene l'overlay visibile anche quando il player entra in fullscreen,
+ * spostandolo dentro document.fullscreenElement e rimettendolo nel parent di default all'uscita.
+ */
+function setupOverlayRelocation() {
+  if (__relocationSetupDone) return;
+  __relocationSetupDone = true;
+
+  function getDefaultOverlayParent(): HTMLElement {
+    const candidates = [
+      '.watch-video',
+      '[data-uia="player"]',
+      '#appMountPoint',
+      'body'
+    ];
+    for (const sel of candidates) {
+      const el = document.querySelector(sel);
+      if (el instanceof HTMLElement) return el;
+    }
+    return document.body;
+  }
+
+  function getOverlayEl(): HTMLElement {
+    const el = document.getElementById('movie-time-overlay');
+    if (!el) throw new Error('[MovieTime] overlay non trovato: assicurati che createOverlay() sia stato già chiamato');
+    return el as HTMLElement;
+  }
+
+  const __overlayDefaultParent = getDefaultOverlayParent();
+  const __overlayEl = getOverlayEl();
+
+  if (!__overlayEl.isConnected) {
+    __overlayDefaultParent.appendChild(__overlayEl);
+  }
+
+  function relocateOverlayForFullscreen() {
+    const fsEl = document.fullscreenElement as HTMLElement | null;
+    if (fsEl) {
+      if (__overlayEl.parentElement !== fsEl) {
+        fsEl.appendChild(__overlayEl);
+      }
+    } else {
+      if (__overlayEl.parentElement !== __overlayDefaultParent) {
+        __overlayDefaultParent.appendChild(__overlayEl);
+      }
+    }
+  }
+
+  document.addEventListener('fullscreenchange', relocateOverlayForFullscreen);
+  relocateOverlayForFullscreen();
+
+  const __overlayObserver = new MutationObserver(() => {
+    const shouldBeParent = (document.fullscreenElement as HTMLElement | null) || __overlayDefaultParent;
+    if (!__overlayEl.isConnected || __overlayEl.parentElement !== shouldBeParent) {
+      shouldBeParent.appendChild(__overlayEl);
+    }
+  });
+  __overlayObserver.observe(document.documentElement, { childList: true, subtree: true });
+}
+

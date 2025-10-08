@@ -11,7 +11,7 @@ export function createOverlay() {
   container.style.position = "fixed";
   container.style.top = "20px";
   container.style.right = "20px";
-  container.style.zIndex = "999999";
+  container.style.zIndex = "2147483647";
   container.style.width = "300px";
   container.style.height = "220px";
   container.style.resize = "both";
@@ -21,6 +21,7 @@ export function createOverlay() {
   container.style.background = "rgba(0,0,0,0.8)";
   container.style.color = "white";
   container.style.userSelect = "none";
+  container.style.pointerEvents = "auto";
 
 
 
