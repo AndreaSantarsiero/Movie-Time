@@ -19,10 +19,12 @@ const statusEl = document.getElementById("status") as HTMLElement;
 (document.getElementById("choose-create") as HTMLButtonElement).onclick = () => {
   document.getElementById("step-choice")!.style.display = "none";
   document.getElementById("step-create")!.style.display = "block";
+  statusEl.innerText = "Ready";
 };
 (document.getElementById("choose-connect") as HTMLButtonElement).onclick = () => {
   document.getElementById("step-choice")!.style.display = "none";
   document.getElementById("step-join")!.style.display = "block";
+  statusEl.innerText = "Ready";
 };
 
 
