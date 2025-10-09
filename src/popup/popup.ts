@@ -1,5 +1,9 @@
+import { testNatSymmetry, formatNatResult } from "../utils/natTest";
+
+
 console.log("[Popup] Loaded");
 
+const testBtn = document.getElementById("btn-test") as HTMLButtonElement;
 const createBtn = document.getElementById("btn-create") as HTMLButtonElement;
 const connectBtn = document.getElementById("btn-connect") as HTMLButtonElement;
 const genAnswerBtn = document.getElementById("btn-generate-answer") as HTMLButtonElement;
@@ -19,6 +23,18 @@ const statusEl = document.getElementById("status") as HTMLElement;
 (document.getElementById("choose-connect") as HTMLButtonElement).onclick = () => {
   document.getElementById("step-choice")!.style.display = "none";
   document.getElementById("step-join")!.style.display = "block";
+};
+
+
+
+testBtn.onclick = async () => {
+  try {
+    (statusEl).innerText = "🔎 Testing NAT via STUN…";
+    const res = await testNatSymmetry();
+    statusEl.innerText = formatNatResult(res);
+  } catch (e: any) {
+    statusEl.innerText = `❌ NAT test failed: ${e?.message ?? String(e)}`;
+  }
 };
 
 
