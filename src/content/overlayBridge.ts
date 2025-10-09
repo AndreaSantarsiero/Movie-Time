@@ -6,6 +6,23 @@ function getPlayer() {
 }
 
 
+
+function getContentInfo() {
+  // Netflix: /watch/<id>
+  const m = location.pathname.match(/\/watch\/(\d+)/);
+  const contentId = m?.[1] ?? null;
+
+  const p = getPlayer();
+  const duration = p?.getDuration?.() ?? null;
+
+  // Titolo: prendiamo il <title> come fallback
+  const title = document.title?.trim() || null;
+
+  return { contentId, title, duration };
+}
+
+
+
 window.addEventListener("message", (ev) => {
   if (ev.data?.source !== "movie-time-content") return;
   const player = getPlayer();
@@ -14,9 +31,20 @@ window.addEventListener("message", (ev) => {
   if (ev.data.type === "PLAY") player.play();
   if (ev.data.type === "PAUSE") player.pause();
   if (ev.data.type === "SEEK") player.seek(ev.data.time);
+
+  // handshake: la content script chiede le info del contenuto
+  if (ev.data.type === "HELLO_REQUEST") {
+    const info = getContentInfo();
+    window.postMessage(
+      { source: "movie-time-bridge", type: "HELLO_RESPONSE", info },
+      "*"
+    );
+  }
 });
 
 
+
+// Heartbeat player → content (tempo/pausa)
 setInterval(() => {
   const p = getPlayer();
   if (!p) return;

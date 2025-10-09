@@ -48,6 +48,30 @@ export function waitForLocalStream(timeoutMs = 10000): Promise<boolean> {
 
 
 
+type SyncMsg = any; // vedi videoSync.ts per il formato esatto
+const __syncHandlers: Array<(m: SyncMsg) => void> = [];
+
+export function onSyncMessage(cb: (m: SyncMsg) => void) {
+  __syncHandlers.push(cb);
+}
+
+export function sendSync(payload: SyncMsg) {
+  const link = getSingletonRTC();
+  if (!link || !link.dc || link.dc.readyState !== "open") {
+    console.warn("[RTC] sendSync(): datachannel not open");
+    return;
+  }
+  try {
+    // Tagghiamo il canale per filtrare eventuali altri payload
+    link.dc.send(JSON.stringify({ __ch: "sync", ...payload }));
+  } catch (e) {
+    console.error("[RTC] sendSync() failed:", e);
+  }
+}
+
+
+
+
 /** Stats utili per capire se i byte scorrono e quale coppia ICE è selezionata */
 export async function getStatsSnapshot(pc: RTCPeerConnection) {
   const rep = await pc.getStats();
@@ -148,12 +172,25 @@ export class RTCLink {
       // iceTransportPolicy: "relay",
     });
 
+
     // DataChannel per sync (se lo usi)
     this.dc = this.pc.createDataChannel("sync");
     this.dc.onopen = () => console.log("[RTC] DataChannel open");
-    this.dc.onmessage = (e) => console.log("[RTC] DC message:", e.data);
+    this.dc.onmessage = (e) => {
+      try {
+        const obj = JSON.parse(e.data);
+        if (obj?.__ch === "sync" || obj?.type) {
+          __syncHandlers.forEach((fn) => fn(obj));
+        } else {
+          console.log("[RTC] DC (non-sync) message:", obj);
+        }
+      } catch {
+        console.log("[RTC] DC (text) message:", e.data);
+      }
+    };
     this.dc.onclose = () => console.log("[RTC] DataChannel closed");
 
+    
     // Log stati
     startStatsLogger(this.pc, "RTC");
     this.pc.onconnectionstatechange = () =>

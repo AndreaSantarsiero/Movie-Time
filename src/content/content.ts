@@ -94,15 +94,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       console.error("[Content] Failed to inject overlayBridge:", e);
     }
 
-    // Bridge → BG (per eventuale sync/log)
-    window.addEventListener("message", (ev) => {
-      if (ev.data?.source !== "movie-time-bridge") return;
-      //console.log("[Content] From page:", ev.data);
-      if (ev.data.type === "SYNC_EVENT") {
-        chrome.runtime.sendMessage({ type: "SYNC_EVENT", data: ev.data });
-      }
-    });
-
     // Overlay UI
     try {
       createOverlay();
@@ -187,4 +178,3 @@ function setupOverlayRelocation() {
   });
   __overlayObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
-

@@ -1,4 +1,5 @@
 import { setLocalStream, onRemoteStream } from "./webrtc";
+import { setSyncEnabled, onSyncUiUpdate } from "./videoSync";
 
 
 
@@ -71,6 +72,8 @@ export function createOverlay() {
       <video id="remote" autoplay playsinline></video>
       <video id="local" autoplay muted playsinline></video>
       <div id="controls">
+        <button id="sync" title="Enable/Disable Sync">🔄</button>
+        <span id="sync-status" style="font-size:12px; opacity:.85; align-self:center;">Match: —</span>
         <button id="mute">🎙️</button>
         <button id="cam">🎥</button>
         <button id="close">❌</button>
@@ -173,6 +176,8 @@ export function createOverlay() {
   });
   window.addEventListener("mouseup", () => (isDragging = false));
 
+  const btnSync  = shadow.getElementById("sync") as HTMLButtonElement;
+  const txtMatch = shadow.getElementById("sync-status") as HTMLSpanElement;
   const local = shadow.getElementById("local") as HTMLVideoElement;
   const remote = shadow.getElementById("remote") as HTMLVideoElement;
   const btnMute = shadow.getElementById("mute") as HTMLButtonElement;
@@ -181,6 +186,21 @@ export function createOverlay() {
 
   // Avvia videochat
   initVideoChat(local, remote);
+
+  // toggle Sync: chi clicca diventa leader
+  let syncOn = false;
+  btnSync.onclick = async () => {
+    syncOn = !syncOn;
+    await setSyncEnabled(syncOn, /*becomeLeader*/ true);
+    btnSync.classList.toggle("off", !syncOn);
+    btnSync.setAttribute("aria-pressed", String(syncOn));
+  };
+
+  // aggiorna badge Match/ruolo e stato bottone
+  onSyncUiUpdate((s) => {
+    txtMatch.textContent = `Match: ${s.match ? "OK" : "NO"}${s.enabled ? ` · ${s.role}` : ""}`;
+    btnSync.classList.toggle("off", !s.enabled);
+  });
 
   btnMute.onclick = () => toggleMute(local, btnMute);
   btnCam.onclick = () => toggleCam(local, btnCam);
