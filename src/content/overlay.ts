@@ -34,7 +34,11 @@ export function createOverlay() {
         width: 100%; height: 100%;
         background: black; object-fit: cover;
         border-radius: 8px;
+        pointer-events: none;
       }
+      :host(:hover) #controls,
+      :host(:focus-within) #controls,
+      :host(.show-controls) #controls { pointer-events: auto; }
       #local { 
         position: absolute; bottom: 10px; right: 10px; width: 80px; height: 60px; border: 2px solid white;
         transform: scaleX(-1);
@@ -44,6 +48,15 @@ export function createOverlay() {
         display: flex; justify-content: space-around;
         padding: 4px; background: rgba(0,0,0,0.4);
         position: absolute; bottom: 0; width: 100%;
+        opacity: 0; visibility: hidden; transform: translateY(6px);
+        pointer-events: none;
+        transition: opacity .15s ease, visibility .15s ease, transform .15s ease;
+      }
+      :host(:hover) #controls,
+      :host(:focus-within) #controls,
+      :host(.show-controls) #controls {
+        opacity: 1; visibility: visible; transform: none;
+        pointer-events: auto;
       }
       button {
         background: rgba(255,255,255,0.1);
@@ -64,6 +77,82 @@ export function createOverlay() {
       </div>
     </div>
   `;
+
+
+
+  // Auto-hide controls (mostra su attività/tocco, nascondi dopo idle)
+  let __hideTimer: number | null = null;
+
+  function showControls(temp: boolean = true) {
+    container.classList.add("show-controls");
+    if (temp) {
+      if (__hideTimer !== null) window.clearTimeout(__hideTimer);
+      __hideTimer = window.setTimeout(() => {
+        container.classList.remove("show-controls");
+      }, 1500); // tempo di visibilità dopo l'ultima attività
+    }
+  }
+
+  // Mostra temporaneamente quando l'utente muove il mouse o tocca l'overlay
+  container.addEventListener("mousemove", () => showControls(true), { passive: true });
+  container.addEventListener("touchstart", () => showControls(true), { passive: true });
+
+  // Mantieni visibile mentre si interagisce via tastiera (focus su bottoni)
+  shadow.addEventListener("focusin", () => showControls(false));
+  shadow.addEventListener("focusout", () => showControls(true));
+
+  // Mostra brevemente all'avvio per far capire che ci sono i controlli
+  showControls(true);
+
+  // Gestione focus dei controlli per farli nascondere dopo click/tap 
+  const controlsEl = shadow.getElementById("controls") as HTMLElement | null;
+
+  if (controlsEl) {
+    // Dopo il click col mouse/touch, rimuovi il focus dal bottone e avvia il timer di hide
+    // (PointerEvent copre mouse/pen/touch)
+    const onPointerUp = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      const btn = target?.closest("button") as HTMLButtonElement | null;
+      if (btn) btn.blur();       // termina :focus-within quando non si usa tastiera
+      showControls(true);        // parte il timer di auto-hide
+    };
+
+    // Fallback per ambienti senza PointerEvent (vecchi browser)
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      const btn = target?.closest("button") as HTMLButtonElement | null;
+      if (btn) btn.blur();
+      showControls(true);
+    };
+
+    // Registra gli handler in modo sicuro
+    if ("onpointerup" in window) {
+      controlsEl.addEventListener("pointerup", onPointerUp as EventListener, { passive: true });
+    } else {
+      controlsEl.addEventListener("click", onClick as EventListener);
+    }
+  }
+
+  // ascolta il keydown sull'HOST (container) invece che sullo shadow
+  container.addEventListener("keydown", (ev: KeyboardEvent) => {
+    const k = ev.key;
+    if (
+      k === "Tab" || k === "Enter" || k === " " ||
+      k === "ArrowLeft" || k === "ArrowRight" ||
+      k === "ArrowUp" || k === "ArrowDown"
+    ) {
+      showControls(false); // resta visibile finché c'è focus
+    }
+  });
+
+  // Nascondi quando il mouse esce dall'overlay (se non c'è più focus dentro)
+  container.addEventListener("mouseleave", () => {
+    const hasFocusInside = !!shadow.activeElement && shadow.contains(shadow.activeElement);
+    if (!hasFocusInside) {
+      showControls(true); // farà partire il timer e poi spariscono
+    }
+  });
+
 
 
 
