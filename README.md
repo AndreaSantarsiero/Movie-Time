@@ -1,7 +1,7 @@
 # 🎬 Movie Time – Peer-to-Peer Netflix Synchronizer with Video Chat
 
 Movie Time is a Chrome Extension that allows two users to synchronize Netflix playback (play, pause, and seek) and video chat directly peer-to-peer, without any central server, login, or ads.  
-It uses WebRTC for real-time communication and synchronization, with Google STUN servers to establish a direct connection through NAT. 
+It uses WebRTC for real-time communication and synchronization, with Google STUN servers to establish a direct connection through NAT.
 
 ---------------------------------------------------------------------
 
