@@ -111,24 +111,24 @@
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 4h4l10 16h4L7 4H3z" fill="#e50914"/><path d="M3 20h4V4H3v16z" fill="#b20710"/></svg>
       <div>
         <div>Video Player</div>
-        <div class="sub">Seleziona un file e goditi il video 🎬</div>
+        <div class="sub">Select a media and enjoy it 🎬</div>
       </div>
     </div>
-    <div class="badge">Locale</div>
+    <div class="badge">Local</div>
   </header>
 
   <main>
     <section class="card">
       <div class="card-header">
         <div class="row" style="flex:1">
-          <label class="btn ghost" for="file">📁 Scegli video</label>
+          <label class="btn ghost" for="file">📁 Choose video</label>
           <input id="file" type="file" accept="video/*" />
-          <button id="clear" class="btn ghost">✖︎ Svuota</button>
-          <span id="fileInfo" class="pill">Nessun file</span>
+          <button id="clear" class="btn ghost">✖︎ Empty</button>
+          <span id="fileInfo" class="pill">No file</span>
         </div>
         <div class="row">
           <button id="pip" class="btn ghost" title="Picture in Picture">🗗 PiP</button>
-          <button id="dlSubs" class="btn ghost" title="Carica sottotitoli .vtt">⤒ Sottotitoli</button>
+          <button id="dlSubs" class="btn ghost" title="Carica sottotitoli .vtt">⤒ Subtitles</button>
           <input id="subs" type="file" accept=".vtt,text/vtt" style="display:none" />
         </div>
       </div>
@@ -145,7 +145,7 @@
             <input type="range" class="progress" id="progress" min="0" max="1000" value="0" step="1">
             <div class="bar">
               <div class="left">
-                <button class="btn" id="playPause">⏯ Riproduci</button>
+                <button class="btn" id="playPause">⏯ Reproduce</button>
                 <button class="btn ghost" id="back10">⏪ 10s</button>
                 <button class="btn ghost" id="fwd10">⏩ 10s</button>
                 <span class="time" id="time">00:00 / 00:00</span>
@@ -167,7 +167,7 @@
   </main>
 
   <footer>
-    Scorciatoie: <code>Spazio</code> play/pausa • <code>←</code>/<code>→</code> ±10s • doppio click sul video per fullscreen.
+    Shortcuts: <code>Space</code> play/pause • <code>←</code>/<code>→</code> ±10s • <code>F</code> or double click on the video for fullscreen.
   </footer>
 
 <script>
@@ -200,7 +200,7 @@ const playerWrap = $("#playerWrap");
 let seekingByUser = false;
 
 function setPausedUI(paused){
-  playPause.textContent = paused ? "▶ Riproduci" : "⏸ Pausa";
+  playPause.textContent = paused ? "▶ Reproduce" : "⏸ Pause";
   bigOverlay.classList.toggle("show", paused);
 }
 function updateTimeUI(){
