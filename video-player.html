@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Vlog Night — Netflix-style P2P Player</title>
+<style>
+  :root{
+    --bg:#141414;           /* Netflix dark */
+    --panel:#1f1f1f;
+    --text:#ffffff;
+    --muted:#b3b3b3;
+    --brand:#e50914;        /* Netflix red */
+    --brandHover:#f6121d;
+    --accent:#2a2a2a;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial,sans-serif;
+    display:flex; flex-direction:column; gap:16px;
+  }
+
+  header{
+    padding:18px 20px 8px;
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid #222;
+  }
+  .branding{
+    display:flex; align-items:center; gap:12px; font-weight:800; letter-spacing:.3px;
+  }
+  .badge{background:var(--brand); padding:4px 8px; border-radius:8px; font-size:12px}
+  .sub{color:var(--muted); font-weight:500; font-size:12px}
+
+  main{display:grid; grid-template-columns: 2fr 1fr; gap:16px; padding:0 20px 20px}
+  @media (max-width: 1100px){ main{grid-template-columns:1fr; } }
+
+  /* Player Card */
+  .card{
+    background:linear-gradient(180deg,#171717,#121212);
+    border:1px solid #1d1d1d;
+    border-radius:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.35);
+    overflow:hidden;
+  }
+  .card-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; border-bottom:1px solid #1d1d1d; background:#101010;
+  }
+  .card-body{padding:0; position:relative}
+  .picker{
+    display:flex; gap:10px; align-items:center; padding:12px 14px; background:#101010; border-top:1px solid #1d1d1d
+  }
+
+  /* Video area */
+  .player-wrap{position:relative; background:black; aspect-ratio:16/9}
+  video{width:100%; height:100%; display:block; background:black}
+
+  /* Big center play hint when paused */
+  .big-play{
+    position:absolute; inset:0; display:grid; place-items:center;
+    pointer-events:none; opacity:0; transition:opacity .2s ease;
+  }
+  .big-play.show{opacity:.85}
+  .big-play .btn{
+    width:88px; height:88px; border-radius:50%; background:rgba(0,0,0,.6);
+    border:3px solid rgba(255,255,255,.85);
+    display:grid; place-items:center; font-size:36px; line-height:1; color:white;
+    filter:drop-shadow(0 6px 18px rgba(0,0,0,.6));
+  }
+
+  /* Controls bar (Netflix-inspired) */
+  .controls{
+    position:absolute; left:0; right:0; bottom:0;
+    background:linear-gradient(180deg,transparent,rgba(0,0,0,.75) 60%);
+    padding:10px 12px 12px;
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .progress{
+    width:100%; appearance:none; height:6px; background:#333; border-radius:999px; outline:none; cursor:pointer;
+  }
+  .progress::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:14px; height:14px; border-radius:50%;
+    background:var(--brand); border:none; margin-top:-4px;
+  }
+  .progress::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--brand); border:none;
+  }
+  .bar{
+    display:flex; align-items:center; gap:10px; justify-content:space-between;
+  }
+  .left, .right{display:flex; align-items:center; gap:8px}
+  .btn{
+    background:var(--brand); border:none; color:white; font-weight:700;
+    padding:8px 12px; border-radius:10px; cursor:pointer;
+    transition:transform .06s ease, background .2s ease;
+  }
+  .btn:hover{ background:var(--brandHover) }
+  .btn:active{ transform:scale(.98) }
+  .btn.ghost{
+    background:#222; color:#eee; border:1px solid #2b2b2b; font-weight:600;
+  }
+  .btn.ghost:hover{ background:#2a2a2a }
+  .pill{
+    background:#0d0d0d; border:1px solid #2b2b2b; border-radius:999px; padding:6px 10px; color:#ddd; font-size:12px
+  }
+  .time{font-variant-numeric:tabular-nums; font-weight:600}
+  .vol{width:100px}
+
+  /* Sidebar: P2P Sync */
+  .side{
+    display:flex; flex-direction:column; gap:16px;
+  }
+  .panel{
+    background:var(--panel); border:1px solid #2a2a2a; border-radius:14px; padding:14px;
+  }
+  .panel h3{
+    margin:0 0 8px; font-size:16px; font-weight:800; color:var(--brand);
+  }
+  .panel p{margin:0 0 10px; color:#ddd; font-size:14px}
+  textarea{
+    width:100%; min-height:96px; resize:vertical;
+    background:#121212; color:#eee; border:1px solid #2a2a2a; border-radius:8px; padding:8px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px;
+  }
+  .row{display:flex; gap:8px; flex-wrap:wrap}
+  .row .btn{flex:1}
+  .status{
+    margin-top:8px; background:#121212; color:#ccc; border:1px solid #2a2a2a; padding:8px; border-radius:8px; font-size:13px
+  }
+  .switch{
+    display:inline-flex; align-items:center; gap:8px; user-select:none; cursor:pointer;
+  }
+  input[type="checkbox"]{width:18px; height:18px}
+
+  .match{font-size:12px; color:#ccc}
+  .match.ok{color:#75e38a}
+  .match.bad{color:#ff7979}
+
+  footer{padding:0 20px 20px; color:#8a8a8a; font-size:12px}
+  a { color:#bbb }
+</style>
+</head>
+<body>
+  <header>
+    <div class="branding">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 4h4l10 16h4L7 4H3z" fill="#e50914"/><path d="M3 20h4V4H3v16z" fill="#b20710"/></svg>
+      <div>
+        <div>Vlog Night</div>
+        <div class="sub">Player in stile Netflix con sincronizzazione P2P</div>
+      </div>
+    </div>
+    <div class="badge">P2P WebRTC</div>
+  </header>
+
+  <main>
+    <!-- PLAYER -->
+    <section class="card">
+      <div class="card-header">
+        <div class="row" style="flex:1">
+          <label class="btn ghost" for="file">📁 Scegli video</label>
+          <input id="file" type="file" accept="video/*" style="display:none" />
+          <button id="openDemo" class="btn ghost" title="Carica un trailer di prova">🎞️ Demo</button>
+          <span id="fileInfo" class="pill">Nessun file</span>
+        </div>
+        <div class="pill" id="hashInfo" title="Verifica file per la sincronizzazione">hash: —</div>
+      </div>
+
+      <div class="card-body">
+        <div class="player-wrap" id="playerWrap">
+          <video id="video" preload="metadata"></video>
+          <div class="big-play" id="bigOverlay"><div class="btn">▶</div></div>
+
+          <!-- Controls -->
+          <div class="controls">
+            <input type="range" class="progress" id="progress" min="0" max="1000" value="0" step="1">
+            <div class="bar">
+              <div class="left">
+                <button class="btn" id="playPause">⏯ Riproduci</button>
+                <button class="btn ghost" id="back10">⏪ 10s</button>
+                <button class="btn ghost" id="fwd10">⏩ 10s</button>
+                <span class="time" id="time">00:00 / 00:00</span>
+              </div>
+              <div class="right">
+                <label class="switch">
+                  <input type="checkbox" id="syncToggle">
+                  <span>Abilita Sync</span>
+                </label>
+                <select id="rate" class="pill" title="Velocità">
+                  <option>0.5×</option><option>0.75×</option><option selected>1×</option>
+                  <option>1.25×</option><option>1.5×</option><option>1.75×</option><option>2×</option>
+                </select>
+                <input type="range" class="vol" id="volume" min="0" max="1" step="0.01" value="1">
+                <button class="btn ghost" id="fullscreen">⛶ Fullscreen</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="picker">
+        <div class="match" id="matchMsg">Seleziona lo stesso file su entrambe le macchine per una sync perfetta.</div>
+      </div>
+    </section>
+
+    <!-- SIDEBAR -->
+    <aside class="side">
+      <div class="panel">
+        <h3>1) Collega i browser</h3>
+        <p>Questo usa una connessione <strong>peer-to-peer</strong> con STUN di Google. Copia/incolla l’<em>Offer</em> e l’<em>Answer</em> come nell’estensione originale. :contentReference[oaicite:3]{index=3}</p>
+        <div class="row" style="margin-bottom:8px">
+          <button id="btnCreate" class="btn">🎬 Crea sessione (Offer)</button>
+          <button id="btnAnswer" class="btn ghost">🔗 Genera Answer</button>
+        </div>
+        <label class="pill" style="display:inline-block;margin-bottom:6px">Offer da inviare</label>
+        <textarea id="offerOut" placeholder="Verrà generata qui"></textarea>
+        <label class="pill" style="display:inline-block;margin:8px 0 6px">Offer ricevuta (incolla qui)</label>
+        <textarea id="offerIn" placeholder="Incolla qui l'Offer dell'altra parte"></textarea>
+        <div class="row" style="margin:8px 0">
+          <button id="btnSetRemoteOffer" class="btn ghost">Imposta Offer remota</button>
+          <button id="btnMakeAnswer" class="btn">Crea Answer</button>
+        </div>
+        <label class="pill" style="display:inline-block;margin-bottom:6px">Answer da inviare</label>
+        <textarea id="answerOut" placeholder="Invia questa all'altra parte"></textarea>
+        <label class="pill" style="display:inline-block;margin:8px 0 6px">Answer ricevuta (incolla qui)</label>
+        <textarea id="answerIn" placeholder="Incolla qui l'Answer"></textarea>
+        <div class="row">
+          <button id="btnSetRemoteAnswer" class="btn ghost">Imposta Answer remota</button>
+          <button id="btnTest" class="btn ghost">🧪 Ping</button>
+        </div>
+        <div class="status" id="status">Stato: pronto</div>
+      </div>
+
+      <div class="panel">
+        <h3>2) Stile & step come il popup</h3>
+        <p>Colori, bottoni e “Create/Connect” ricalcano il popup della tua estensione per familiarità d’uso. :contentReference[oaicite:4]{index=4} :contentReference[oaicite:5]{index=5}</p>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    Consigli: iniziate in pausa, selezionate lo stesso file, abilitate “Sync”. La sincronizzazione invia eventi
+    <code>play/pause/seek</code> con timestamp e compensa la latenza stimata (RTT) del canale dati.
+  </footer>
+
+<script>
+/* ------------------------ Utilities ------------------------ */
+const $ = sel => document.querySelector(sel);
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+const fmt = s => {
+  const sign = s<0 ? "-" : "";
+  s = Math.max(0, Math.floor(Math.abs(s)));
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return (h? h.toString().padStart(2,"0")+":" : "") + m.toString().padStart(2,"0")+":"+sec.toString().padStart(2,"0");
+};
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+
+/* ------------------------ Elements ------------------------ */
+const video = $("#video");
+const progress = $("#progress");
+const timeEl = $("#time");
+const playPause = $("#playPause");
+const back10 = $("#back10");
+const fwd10 = $("#fwd10");
+const volume = $("#volume");
+const rate = $("#rate");
+const fullscreen = $("#fullscreen");
+const bigOverlay = $("#bigOverlay");
+const syncToggle = $("#syncToggle");
+const fileInput = $("#file");
+const fileInfo = $("#fileInfo");
+const hashInfo = $("#hashInfo");
+const matchMsg = $("#matchMsg");
+const openDemo = $("#openDemo");
+
+/* Signaling UI */
+const statusEl = $("#status");
+const offerOut = $("#offerOut");
+const offerIn = $("#offerIn");
+const answerOut = $("#answerOut");
+const answerIn = $("#answerIn");
+const btnCreate = $("#btnCreate");
+const btnAnswer = $("#btnAnswer");
+const btnSetRemoteOffer = $("#btnSetRemoteOffer");
+const btnMakeAnswer = $("#btnMakeAnswer");
+const btnSetRemoteAnswer = $("#btnSetRemoteAnswer");
+const btnTest = $("#btnTest");
+
+/* ------------------------ Player UI ------------------------ */
+let seekingByUser = false;
+let lastUserActionAt = 0;
+
+function updateTimeUI(){
+  const cur = video.currentTime || 0;
+  const dur = isFinite(video.duration) ? video.duration : 0;
+  timeEl.textContent = `${fmt(cur)} / ${fmt(dur||0)}`;
+  if(!seekingByUser && isFinite(dur) && dur>0){
+    progress.value = Math.round(cur/dur*1000);
+  }
+  bigOverlay.classList.toggle("show", video.paused);
+}
+
+function setPausedUI(paused){
+  playPause.textContent = paused ? "▶ Riproduci" : "⏸ Pausa";
+  bigOverlay.classList.toggle("show", paused);
+}
+
+function loadDemoClip(){
+  // Piccolo trailer demo (data URL ~ breve). Per semplicità non includiamo un video reale.
+  alert("Carica il tuo file video locale con 'Scegli video'. Il demo è un segnaposto.");
+}
+
+/* ------------------------ File handling & hashing ------------------------ */
+let fileMeta = { name:null, size:0, hash:null };
+
+async function hashFile(file){
+  // Per velocizzare: leggiamo fino a 32 MiB (o intero file se più piccolo)
+  const MAX = 32*1024*1024;
+  const slice = file.slice(0, Math.min(file.size, MAX));
+  const buf = await slice.arrayBuffer();
+  const hashBuf = await crypto.subtle.digest("SHA-256", buf);
+  const arr = Array.from(new Uint8Array(hashBuf));
+  const hex = arr.map(b => b.toString(16).padStart(2,"0")).join("");
+  return hex;
+}
+
+async function handleFile(file){
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  video.src = url;
+  fileInfo.textContent = `${file.name} (${(file.size/1048576).toFixed(2)} MB)`;
+  statusEl.textContent = "Stato: calcolo hash del file…";
+  const hex = await hashFile(file);
+  fileMeta = { name:file.name, size:file.size, hash:hex };
+  hashInfo.textContent = `hash: ${hex.slice(0,8)}…`;
+  statusEl.textContent = "Stato: file pronto";
+  announceFileMeta(); // invia al peer
+}
+
+/* ------------------------ Custom controls ------------------------ */
+playPause.addEventListener("click", () => {
+  if(video.paused) video.play(); else video.pause();
+  lastUserActionAt = Date.now();
+  if(syncEnabled()) sendState("toggle", video.currentTime, video.paused? "play":"pause");
+});
+back10.addEventListener("click", () => {
+  video.currentTime = Math.max(0, video.currentTime - 10);
+  lastUserActionAt = Date.now();
+  if(syncEnabled()) sendState("seek", video.currentTime);
+});
+fwd10.addEventListener("click", () => {
+  video.currentTime = Math.min(video.duration||Infinity, video.currentTime + 10);
+  lastUserActionAt = Date.now();
+  if(syncEnabled()) sendState("seek", video.currentTime);
+});
+volume.addEventListener("input", () => video.volume = parseFloat(volume.value));
+rate.addEventListener("change", () => video.playbackRate = parseFloat(rate.value));
+fullscreen.addEventListener("click", () => {
+  const wrap = document.getElementById("playerWrap");
+  if(document.fullscreenElement) document.exitFullscreen();
+  else wrap.requestFullscreen().catch(()=>{});
+});
+
+progress.addEventListener("input", () => {
+  if(!isFinite(video.duration)) return;
+  seekingByUser = true;
+  const t = (parseInt(progress.value)/1000)*(video.duration||0);
+  timeEl.textContent = `${fmt(t)} / ${fmt(video.duration||0)}`;
+});
+progress.addEventListener("change", () => {
+  if(!isFinite(video.duration)) return;
+  const t = (parseInt(progress.value)/1000)*(video.duration||0);
+  video.currentTime = t;
+  lastUserActionAt = Date.now();
+  if(syncEnabled()) sendState("seek", t);
+  seekingByUser = false;
+});
+
+video.addEventListener("play", () => { setPausedUI(false); if(syncEnabled()) sendState("play", video.currentTime); });
+video.addEventListener("pause", () => { setPausedUI(true); if(syncEnabled()) sendState("pause", video.currentTime); });
+video.addEventListener("timeupdate", updateTimeUI);
+video.addEventListener("loadedmetadata", updateTimeUI);
+video.addEventListener("volumechange", ()=>{ volume.value = video.volume; });
+video.addEventListener("ratechange", ()=>{ /* speed local only */ });
+
+document.addEventListener("keydown", (e)=>{
+  if(e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT")) return;
+  if(e.code === "Space"){ e.preventDefault(); playPause.click(); }
+  if(e.code === "ArrowLeft"){ back10.click(); }
+  if(e.code === "ArrowRight"){ fwd10.click(); }
+});
+
+fileInput.addEventListener("change", e => handleFile(e.target.files?.[0]) );
+openDemo.addEventListener("click", loadDemoClip);
+
+/* ------------------------ P2P over WebRTC (manual signaling stile README/popup) ------------------------ */
+// ICE via Google STUN as described in README
+const iceServers = [{ urls: "stun:stun.l.google.com:19302" }]; // :contentReference[oaicite:6]{index=6}
+
+let pc = null;
+let dc = null;
+let connected = false;
+let rttMs = 0;
+let lastPingAt = 0;
+
+function syncEnabled(){ return syncToggle.checked && connected; }
+
+function setStatus(msg){
+  statusEl.textContent = "Stato: " + msg;
+}
+
+function createPC(){
+  pc = new RTCPeerConnection({ iceServers });
+  pc.onicecandidate = ev => {
+    // Update serialized SDP whenever ICE changes, for copy/paste completeness
+    if(ev.candidate) return; // wait for gathering to finish for cleaner text
+    if(pc.localDescription){
+      const payload = btoa(JSON.stringify(pc.localDescription));
+      if(pc.localDescription.type === "offer") offerOut.value = payload;
+      if(pc.localDescription.type === "answer") answerOut.value = payload;
+    }
+  };
+  pc.onconnectionstatechange = ()=>{
+    setStatus(pc.connectionState);
+    connected = (pc.connectionState === "connected");
+  };
+  dc = pc.createDataChannel("sync", { ordered:true });
+  wireDC();
+}
+
+function wireDC(){
+  dc.onopen = ()=>{ setStatus("canale dati aperto"); startPings(); announceFileMeta(true); };
+  dc.onclose = ()=>{ setStatus("canale dati chiuso"); };
+  dc.onmessage = onData;
+}
+
+function startPings(){
+  (async ()=>{
+    while(dc && dc.readyState === "open"){
+      lastPingAt = performance.now();
+      safeSend({t:"ping", ts:lastPingAt});
+      await sleep(1000);
+    }
+  })();
+}
+
+function safeSend(obj){
+  try{ dc && dc.readyState==="open" && dc.send(JSON.stringify(obj)); }catch(e){}
+}
+
+function announceFileMeta(initial=false){
+  if(!dc || dc.readyState!=="open") return;
+  if(!fileMeta.hash) return;
+  safeSend({t:"fileMeta", meta:fileMeta, initial});
+}
+
+/* ------------- Signaling buttons (Create/Answer) ------------- */
+btnCreate.addEventListener("click", async ()=>{
+  createPC();
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  setStatus("Offer generata — copia e invia");
+});
+btnAnswer.addEventListener("click", ()=> alert("Per rispondere: incolla un'Offer sotto, poi premi 'Crea Answer'."));
+
+btnSetRemoteOffer.addEventListener("click", async ()=>{
+  if(!pc) createPC();
+  try{
+    const sdp = JSON.parse(atob(offerIn.value.trim()));
+    await pc.setRemoteDescription(sdp);
+    setStatus("Offer remota impostata");
+  }catch(e){ alert("Offer non valida"); }
+});
+
+btnMakeAnswer.addEventListener("click", async ()=>{
+  if(!pc || !pc.remoteDescription){ alert("Imposta prima l'Offer remota"); return; }
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  setStatus("Answer generata — inviala al peer");
+});
+
+btnSetRemoteAnswer.addEventListener("click", async ()=>{
+  try{
+    const sdp = JSON.parse(atob(answerIn.value.trim()));
+    await pc.setRemoteDescription(sdp);
+    setStatus("Answer remota impostata");
+    // Se non abbiamo creato il canale, potremmo riceverlo
+    pc.ondatachannel = (ev)=>{ dc = ev.channel; wireDC(); };
+  }catch(e){ alert("Answer non valida"); }
+});
+
+btnTest.addEventListener("click", ()=> safeSend({t:"test", msg:"hello"}));
+
+/* ------------------------ Sync protocol ------------------------
+Payloads inviati sul data channel:
+
+{ t:"fileMeta", meta:{name,size,hash}, initial? }
+{ t:"play",  at:number, ts:number }
+{ t:"pause", at:number, ts:number }
+{ t:"seek",  at:number, ts:number }
+{ t:"toggle", at:number, op:"play"|"pause", ts:number }
+{ t:"ping", ts:number } -> { t:"pong", ts:number }
+-----------------------------------------------------------------*/
+
+function now(){ return performance.now(); }
+
+function sendState(kind, at, extra){
+  if(!dc || dc.readyState!=="open") return;
+  const base = { t:kind, at, ts: now() };
+  if(kind==="toggle") base.op = extra;
+  safeSend(base);
+}
+
+function applyRemote(kind, at, ts, extra){
+  // Compensazione latenza: stimiamo metà RTT
+  const latency = rttMs/2;
+  const effectiveAt = at + latency/1000; // secondi
+  const drift = Math.abs((video.currentTime||0) - effectiveAt);
+
+  if(kind==="seek"){
+    video.currentTime = effectiveAt;
+    return;
+  }
+  if(kind==="play"){
+    if(drift>0.25) video.currentTime = effectiveAt;
+    video.play();
+    return;
+  }
+  if(kind==="pause"){
+    if(drift>0.25) video.currentTime = effectiveAt;
+    video.pause();
+    return;
+  }
+  if(kind==="toggle"){
+    if(extra==="play"){ applyRemote("play", at, ts); }
+    else { applyRemote("pause", at, ts); }
+  }
+}
+
+function onData(ev){
+  try{
+    const m = JSON.parse(ev.data);
+    if(m.t==="ping"){ safeSend({t:"pong", ts:m.ts}); return; }
+    if(m.t==="pong"){
+      rttMs = Math.max(0, now() - m.ts);
+      statusEl.textContent = `Stato: connesso (RTT ~ ${Math.round(rttMs)} ms)`;
+      return;
+    }
+    if(m.t==="test"){ setStatus("messaggio test ricevuto"); return; }
+    if(m.t==="fileMeta"){
+      const peer = m.meta||{};
+      if(fileMeta.hash && peer.hash){
+        const ok = peer.hash===fileMeta.hash && peer.size===fileMeta.size;
+        matchMsg.textContent = ok
+          ? `File corrispondente ✅ (${peer.name}, ${(peer.size/1048576).toFixed(2)} MB)`
+          : `Attenzione: file diverso ❌ (seleziona lo stesso video su entrambi)`;
+        matchMsg.className = "match " + (ok? "ok":"bad");
+      }else if(peer.hash && !fileMeta.hash){
+        matchMsg.textContent = `Il peer ha selezionato: ${peer.name} — scegli lo stesso file qui.`;
+      }
+      if(m.initial) announceFileMeta(); // rispondi con la nostra meta se è un saluto iniziale
+      return;
+    }
+    // Eventi di riproduzione
+    if(!syncEnabled()) return; // se l'utente disabilita sync, ignoriamo
+    if(["play","pause","seek","toggle"].includes(m.t)){
+      applyRemote(m.t, m.at||0, m.ts||0, m.op);
+    }
+  }catch(e){}
+}
+
+/* ------------------------ Init ------------------------ */
+setPausedUI(true);
+updateTimeUI();
+setInterval(updateTimeUI, 250);
+video.volume = 1;
+
+rate.value = "1×";
+rate.dispatchEvent(new Event("change"));
+
+</script>
+</body>
+</html>
