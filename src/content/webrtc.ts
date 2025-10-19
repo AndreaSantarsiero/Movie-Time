@@ -1,12 +1,25 @@
+// - Gestisce RTCPeerConnection (solo STUN).
+// - Espone metodi per signaling (createOffer/applyRemote).
+// - Espone setLocalStream/onRemoteStream per A/V.
+// - Espone canale dati "sync" + helper sendSync/onSyncMessage.
+//
+
+type SyncHandler = (msg: any) => void;
+
 let __rtcSingleton: RTCLink | null = null;
-export const getSingletonRTC = () => __rtcSingleton;
 
 let _localStream: MediaStream | null = null;
 let _remoteStreamCb: ((s: MediaStream) => void) | null = null;
 let _lastRemoteStream: MediaStream | null = null;
-let _waiters: Array<(ok: boolean) => void> = [];
+const _waiters: Array<(ok: boolean) => void> = [];
+
+const __syncHandlers: SyncHandler[] = [];
 
 
+
+export function onSyncMessage(fn: SyncHandler) {
+  if (typeof fn === "function") __syncHandlers.push(fn);
+}
 
 /** Chiamato dall’overlay quando la webcam è pronta */
 export function setLocalStream(stream: MediaStream) {
@@ -14,173 +27,111 @@ export function setLocalStream(stream: MediaStream) {
   // sveglia eventuali attese
   _waiters.splice(0).forEach((cb) => cb(true));
   // se la PC esiste già, attacca subito le tracce
-  if (__rtcSingleton) __rtcSingleton.attachLocalStream(stream);
+  if (__rtcSingleton && _localStream) {
+    _localStream.getTracks().forEach((t) => {
+      try { __rtcSingleton!.pc.addTrack(t, _localStream as MediaStream); } catch {}
+    });
+  }
 }
 
-
-
-/** L’overlay si registra per ricevere il remote stream */
-export function onRemoteStream(cb: (s: MediaStream) => void) {
-  _remoteStreamCb = cb;
-  // se è già arrivato prima, consegnalo subito (evita race su ontrack)
-  if (_lastRemoteStream) _remoteStreamCb(_lastRemoteStream);
-}
-
-
-
-/** Facoltativo ma utile: attende la webcam prima di negoziare */
+/** Attende la disponibilità della webcam */
 export function waitForLocalStream(timeoutMs = 10000): Promise<boolean> {
   if (_localStream) return Promise.resolve(true);
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      // timeout: non bloccare all’infinito
-      const i = _waiters.indexOf(resolver);
-      if (i >= 0) _waiters.splice(i, 1);
-      resolve(false);
-    }, timeoutMs);
-    const resolver = (ok: boolean) => {
-      clearTimeout(timer);
-      resolve(ok);
-    };
-    _waiters.push(resolver);
+    const t = window.setTimeout(() => resolve(false), timeoutMs);
+    _waiters.push((ok) => { clearTimeout(t); resolve(ok); });
   });
 }
 
-
-
-type SyncMsg = any; // vedi videoSync.ts per il formato esatto
-const __syncHandlers: Array<(m: SyncMsg) => void> = [];
-
-export function onSyncMessage(cb: (m: SyncMsg) => void) {
-  __syncHandlers.push(cb);
+/** Registra callback per lo stream remoto */
+export function onRemoteStream(cb: (s: MediaStream) => void) {
+  _remoteStreamCb = cb;
+  if (_lastRemoteStream) cb(_lastRemoteStream);
 }
 
-export function sendSync(payload: SyncMsg) {
-  const link = getSingletonRTC();
-  if (!link || !link.dc || link.dc.readyState !== "open") {
-    console.warn("[RTC] sendSync(): datachannel not open");
-    return;
-  }
+export function getSingletonRTC() {
+  return __rtcSingleton;
+}
+
+/** Helper di invio sul DataChannel "sync" */
+export function sendSync(payload: any) {
+  const rtc = __rtcSingleton;
+  if (!rtc || !rtc.dc || rtc.dc.readyState !== "open") return;
+  const obj = { __ch: "sync", origin: "me", ...payload };
   try {
-    // Tagghiamo il canale per filtrare eventuali altri payload
-    link.dc.send(JSON.stringify({ __ch: "sync", ...payload }));
+    rtc.dc.send(JSON.stringify(obj));
   } catch (e) {
-    console.error("[RTC] sendSync() failed:", e);
+    console.warn("[RTC] Failed to send on DC:", e);
   }
-}
-
-
-
-
-/** Stats utili per capire se i byte scorrono e quale coppia ICE è selezionata */
-export async function getStatsSnapshot(pc: RTCPeerConnection) {
-  const rep = await pc.getStats();
-  let videoRecvBytes = 0, audioRecvBytes = 0, videoSendBytes = 0, audioSendBytes = 0;
-  let selectedPair: any = null;
-
-  rep.forEach((s) => {
-    if (s.type === "inbound-rtp" && !s.isRemote) {
-      // @ts-ignore
-      if (s.kind === "video") videoRecvBytes += s.bytesReceived ?? 0;
-      // @ts-ignore
-      if (s.kind === "audio") audioRecvBytes += s.bytesReceived ?? 0;
-    }
-    if (s.type === "outbound-rtp" && !s.isRemote) {
-      // @ts-ignore
-      if (s.kind === "video") videoSendBytes += s.bytesSent ?? 0;
-      // @ts-ignore
-      if (s.kind === "audio") audioSendBytes += s.bytesSent ?? 0;
-    }
-    if (s.type === "transport" && (s as any).selectedCandidatePairId && rep.get((s as any).selectedCandidatePairId)) {
-      selectedPair = rep.get((s as any).selectedCandidatePairId);
-    }
-  });
-  return { videoRecvBytes, audioRecvBytes, videoSendBytes, audioSendBytes, selectedPair };
-}
-
-
-
-/** Logger periodico delle stats */
-export function startStatsLogger(pc: RTCPeerConnection, label = "RTC") {
-  let last = { vR:0, aR:0, vS:0, aS:0 };
-  return setInterval(async () => {
-    const s = await getStatsSnapshot(pc);
-    const dvR = s.videoRecvBytes - last.vR;
-    const daR = s.audioRecvBytes - last.aR;
-    const dvS = s.videoSendBytes - last.vS;
-    const daS = s.audioSendBytes - last.aS;
-    last = { vR: s.videoRecvBytes, aR: s.audioRecvBytes, vS: s.videoSendBytes, aS: s.audioSendBytes };
-
-    console.log(
-      `[${label}] ΔBytes recv(v/a)=${dvR}/${daR} send(v/a)=${dvS}/${daS}`,
-      "candPair:", s.selectedPair?.localCandidateId, "→", s.selectedPair?.remoteCandidateId
-    );
-  }, 2000);
-}
-
-
-
-/** Attende che l'ICE gathering finisca (o timeout) così l’SDP locale contiene TUTTI i candidati */
-async function waitForIceGathering(pc: RTCPeerConnection, timeoutMs = 8000) {
-  if (pc.iceGatheringState === "complete") return;
-  await new Promise<void>((resolve) => {
-    const t = setTimeout(() => {
-      console.warn("[RTC] ICE gathering timed out");
-      resolve(); // non bloccare all’infinito: useremo ciò che abbiamo
-    }, timeoutMs);
-    const onchg = () => {
-      console.log("[RTC] icegatheringstate:", pc.iceGatheringState);
-      if (pc.iceGatheringState === "complete") {
-        clearTimeout(t);
-        pc.removeEventListener("icegatheringstatechange", onchg);
-        resolve();
-      }
-    };
-    pc.addEventListener("icegatheringstatechange", onchg);
-  });
 }
 
 
 
 export class RTCLink {
 
-  pc!: RTCPeerConnection;
-  dc!: RTCDataChannel;
-  private localTracksAdded = false;
+  public pc: RTCPeerConnection;
+  public dc: RTCDataChannel | null = null;
+
+  private appliedOffer = false;
   private appliedAnswer = false;
 
+  private remoteStream: MediaStream;
 
 
   constructor() {
-    if (__rtcSingleton) {
-      console.log("[RTC] Reusing existing instance");
-      return __rtcSingleton;
-    }
+    // Crea singleton
+    __rtcSingleton = this;
 
-    console.log("[RTC] Creating RTCPeerConnection");
     this.pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        // Se hai un TURN, aggiungilo qui (consigliato per hotspot / NAT simmetrici):
-        // {
-        //   urls: "turn:YOUR_TURN_HOST:3478",
-        //   username: "user",
-        //   credential: "pass",
-        // },
-      ],
-      // Per test puoi forzare il relay:
-      // iceTransportPolicy: "relay",
+      iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
     });
 
+    this.remoteStream = new MediaStream();
 
-    // DataChannel per sync (se lo usi)
-    this.dc = this.pc.createDataChannel("sync");
+    // Media: in arrivo
+    this.pc.ontrack = (ev) => {
+      if (ev.streams && ev.streams[0]) {
+        this.remoteStream = ev.streams[0];
+      } else {
+        this.remoteStream.addTrack(ev.track);
+      }
+      _lastRemoteStream = this.remoteStream;
+      if (_remoteStreamCb) _remoteStreamCb(this.remoteStream);
+    };
+
+    // Media: in uscita
+    if (_localStream) {
+      _localStream.getTracks().forEach((t) => this.pc.addTrack(t, _localStream as MediaStream));
+    }
+
+    // ICE logging (facoltativo)
+    this.pc.oniceconnectionstatechange = () => {
+      console.log("[RTC] ICE state:", this.pc.iceConnectionState);
+    };
+
+    // DataChannel lato callee
+    this.pc.ondatachannel = (ev) => {
+      if (ev.channel.label === "sync") {
+        this.attachDc(ev.channel);
+      }
+    };
+  }
+
+
+  private attachDc(dc: RTCDataChannel) {
+    this.dc = dc;
     this.dc.onopen = () => console.log("[RTC] DataChannel open");
+    this.dc.onclose = () => console.log("[RTC] DataChannel close");
+    this.dc.onerror = (e) => console.error("[RTC] DataChannel error", e);
     this.dc.onmessage = (e) => {
       try {
         const obj = JSON.parse(e.data);
-        if (obj?.__ch === "sync" || obj?.type) {
-          __syncHandlers.forEach((fn) => fn(obj));
+        if (obj && (obj.__ch === "sync" || obj.type)) {
+          // Normalizzazione: il mittente marca origin:"me". Per il ricevente deve risultare "peer".
+          if (obj.origin === "me") obj.origin = "peer";
+          __syncHandlers.forEach((fn) => {
+            try { fn(obj); } catch (err) { console.error("[RTC] sync handler error", err); }
+          });
         } else {
           console.log("[RTC] DC (non-sync) message:", obj);
         }
@@ -188,84 +139,89 @@ export class RTCLink {
         console.log("[RTC] DC (text) message:", e.data);
       }
     };
-    this.dc.onclose = () => console.log("[RTC] DataChannel closed");
-
-    
-    // Log stati
-    startStatsLogger(this.pc, "RTC");
-    this.pc.onconnectionstatechange = () =>
-      console.log("[RTC] ConnState:", this.pc.connectionState);
-    this.pc.oniceconnectionstatechange = () =>
-      console.log("[RTC] ICE State:", this.pc.iceConnectionState);
-    this.pc.onicecandidate = (e) =>
-      console.log("[RTC] ICE:", e.candidate ?? "gathering complete");
-    this.pc.onicegatheringstatechange = () =>
-      console.log("[RTC] ICE Gathering:", this.pc.iceGatheringState);
-
-    // Remote media
-    this.pc.ontrack = (ev) => {
-      const stream = ev.streams?.[0];
-      console.log("[RTC] ontrack, streams:", ev.streams?.length);
-      if (stream) {
-        _lastRemoteStream = stream;
-        _remoteStreamCb?.(stream);
-      }
-    };
-
-    // Se la webcam è già pronta, attacca subito le tracce
-    if (_localStream) this.attachLocalStream(_localStream);
-
-    __rtcSingleton = this;
   }
 
 
-
-  attachLocalStream(stream: MediaStream) {
-    if (this.localTracksAdded) return;
-    console.log("[RTC] Attaching local tracks");
-    stream.getTracks().forEach((t) => this.pc.addTrack(t, stream));
-    this.localTracksAdded = true;
-  }
-
-  
-
-  // Crea un'offer, imposta la localDescription e ASPETTA che l’ICE gathering finisca.
-  // Ritorna SEMPRE la localDescription completa (con a=candidate) per il flusso copia-incolla.
-  async createOffer() {
-    if (!_localStream) console.warn("[RTC] createOffer() without local stream - l'SDP potrebbe non contenere A/V");
-    const offer = await this.pc.createOffer({});
-    await this.pc.setLocalDescription(offer);
-    await waitForIceGathering(this.pc); // Vanilla ICE on
-    const full = this.pc.localDescription!;
-    console.log("[RTC] Offer ready with ICE, m-lines:", full?.sdp?.match(/^m=.*$/gm));
-    return full;
-  }
-
-
-
-  // Applica una remote (offer|answer). Se è un'offer, genera l'answer e ASPETTA ICE.
-  // Se è una answer, la applica una sola volta (evita duplicati).
-  async applyRemote(desc: RTCSessionDescriptionInit) {
-    console.log("[RTC] applyRemote:", desc?.type);
-    await this.pc.setRemoteDescription(desc);
-
-    if (desc.type === "offer") {
-      if (!_localStream) console.warn("[RTC] Answer senza local stream - l'SDP potrebbe non contenere A/V");
-      const answer = await this.pc.createAnswer();
-      await this.pc.setLocalDescription(answer);
-      await waitForIceGathering(this.pc); // Vanilla ICE on
-      const full = this.pc.localDescription!;
-      console.log("[RTC] Answer ready with ICE");
-      return full;
+  /** Crea un'offerta e apre il DataChannel "sync" lato caller */
+  async createOffer(): Promise<RTCSessionDescriptionInit> {
+    // DC lato caller
+    if (!this.dc) {
+      this.attachDc(this.pc.createDataChannel("sync"));
     }
 
-    if (desc.type === "answer") {
+    // Assicura tracce locali presenti (se disponibili al momento)
+    if (_localStream) {
+      _localStream.getTracks().forEach((t) => {
+        // evita doppie addTrack (RTCPeerConnection le deduplica comunque)
+        try { this.pc.addTrack(t, _localStream as MediaStream); } catch {}
+      });
+    }
+
+    const offer = await this.pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    } as any);
+    await this.pc.setLocalDescription(offer);
+
+    // Attendi ICE gathering completo per SDP più compatto (facoltativo)
+    await new Promise<void>((res) => {
+      if (this.pc.iceGatheringState === "complete") return res();
+      const onState = () => {
+        if (this.pc.iceGatheringState === "complete") {
+          this.pc.removeEventListener("icegatheringstatechange", onState as any);
+          res();
+        }
+      };
+      this.pc.addEventListener("icegatheringstatechange", onState as any);
+      // timeout di sicurezza
+      setTimeout(() => res(), 1500);
+    });
+
+    return this.pc.localDescription as RTCSessionDescriptionInit;
+  }
+
+
+  /** Applica un SDP remoto. Se è un'offerta, restituisce l'answer. */
+  async applyRemote(desc: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit | void> {
+    if (!desc || !desc.type) throw new Error("Invalid remote description");
+    if (desc.type === "offer") {
+      if (this.appliedOffer) {
+        console.warn("[RTC] Duplicate OFFER ignored");
+      } else {
+        await this.pc.setRemoteDescription(desc);
+        this.appliedOffer = true;
+      }
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+      // Attendi ICE gathering (facoltativo)
+      await new Promise<void>((res) => {
+        if (this.pc.iceGatheringState === "complete") return res();
+        const onState = () => {
+          if (this.pc.iceGatheringState === "complete") {
+            this.pc.removeEventListener("icegatheringstatechange", onState as any);
+            res();
+          }
+        };
+        this.pc.addEventListener("icegatheringstatechange", onState as any);
+        setTimeout(() => res(), 1500);
+      });
+      return this.pc.localDescription as RTCSessionDescriptionInit;
+    } else {
+      // answer
       if (this.appliedAnswer) {
         console.warn("[RTC] Duplicate ANSWER ignored");
         return;
       }
+      await this.pc.setRemoteDescription(desc);
       this.appliedAnswer = true;
-      // nessun return: l’ICE proseguirà e ontrack arriverà appena c’è connettività
     }
   }
+}
+
+
+
+/** Factory singleton */
+export function ensureRTC(): RTCLink {
+  if (!__rtcSingleton) __rtcSingleton = new RTCLink();
+  return __rtcSingleton;
 }
