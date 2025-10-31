@@ -32,6 +32,20 @@ window.addEventListener("message", (ev) => {
   if (ev.data.type === "PAUSE") player.pause();
   if (ev.data.type === "SEEK") player.seek(ev.data.time);
 
+  // smoothing rate control
+  if (ev.data.type === "SET_RATE") {
+    try {
+      const v = document.querySelector("video") as HTMLVideoElement | null;
+      if (v) v.playbackRate = Number(ev.data.rate) || 1.0;
+    } catch {}
+  }
+  if (ev.data.type === "CLEAR_RATE") {
+    try {
+      const v = document.querySelector("video") as HTMLVideoElement | null;
+      if (v) v.playbackRate = 1.0;
+    } catch {}
+  }
+
   // handshake: la content script chiede le info del contenuto
   if (ev.data.type === "HELLO_REQUEST") {
     const info = getContentInfo();

@@ -10,13 +10,19 @@ import { sendSync, onSyncMessage } from "./webrtc";
 const HEARTBEAT_MS = 500;
 const SEEK_LOCAL_DETECT_S = 1.50;   // per takeover quando follower interagisce davvero
 
-// Anti-jitter / smoothing
+// Anti-jitter
 const DISCRETE_COOLDOWN_MS = 900;    // min distanza tra PLAY/PAUSE applicati dal follower
 const DRIFT_SEEK_COOLDOWN_MS = 2000; // min distanza tra SEEK di correzione dal follower
 const STATE_PAUSE_HYST_MS = 900;     // tempo minimo di coerenza (da STATE) per cambiare pausa
-const DRIFT_PLAYING_THRESHOLD_S = 1.2;
+const DRIFT_PLAYING_THRESHOLD_S = 1.6;
 const DRIFT_PAUSED_THRESHOLD_S  = 2.5;
 const SUPPRESS_MS = 800;             // evita takeover da TICK indotti da azione remota
+
+// Correzione dolce (smoothing)
+const SOFT_DRIFT_MIN_S = 0.25;     // drift minimo per attivare smoothing (solo in play)
+const SOFT_RATE_DELTA = 0.04;      // ±4%: 1.04 se sono indietro, 0.96 se sono avanti
+const SOFT_CORRECTION_MS = 1500;   // durata della correzione dolce
+
 
 // Leadership stability
 const TAKEOVER_GRACE_MS = 3000;          // tempo minimo dall'ultima azione remota applicata
@@ -67,6 +73,7 @@ let peerPeerId: string | null = null;
 let suppressUntil = 0;                   // soppressione takeover dopo azione remota
 let lastSeekApplyAt = 0;                 // ultimo SEEK applicato dal follower
 let lastPauseChangeApplyAt = 0;          // ultimo PLAY/PAUSE applicato dal follower
+let softCorrUntil = 0;                   // fine finestra attiva della correzione dolce
 let pauseMismatchSince: number | null = null; // inizio del disallineamento stato (da STATE)
 
 // Leadership tracking
@@ -136,6 +143,28 @@ function computeMatch(): boolean {
 
 function postToPage(msg: any) {
   window.postMessage({ source: "movie-time-content", ...msg }, "*");
+}
+
+function startSoftCorrection(deltaRate: number, durationMs = SOFT_CORRECTION_MS) {
+  // Non fare smoothing se siamo in pausa
+  if (lastPaused) return;
+
+  // Evita di impilare correzioni
+  const tNow = now();
+  if (tNow < softCorrUntil) return;
+
+  softCorrUntil = tNow + durationMs;
+
+  // Imposta il rate lato pagina
+  postToPage({ type: "SET_RATE", rate: 1 + deltaRate });
+
+  // Ripristina il rate a fine finestra
+  window.setTimeout(() => {
+    if (now() >= softCorrUntil) {
+      postToPage({ type: "CLEAR_RATE" });
+      softCorrUntil = 0;
+    }
+  }, durationMs + 50);
 }
 
 // Applica un comando remoto, avvia soppressione, traccia "affect"
@@ -323,6 +352,13 @@ export function setupVideoSync() {
       if (drift > driftThreshold && (tNow - lastSeekApplyAt > DRIFT_SEEK_COOLDOWN_MS)) {
         applyRemoteCommand({ type: "SEEK", time: remoteTime });
         lastSeekApplyAt = tNow;
+      }
+      else if (playing && drift >= SOFT_DRIFT_MIN_S && drift < driftThreshold) {
+        // Se sto INDIETRO rispetto al leader → accelero di +4% (1.04).
+        // Se sto AVANTI → rallento di -4% (0.96).
+        const iAmBehind = lastTickTime < remoteTime;
+        const delta = iAmBehind ? +SOFT_RATE_DELTA : -SOFT_RATE_DELTA;
+        startSoftCorrection(delta);
       }
 
       // Hysteresis sullo stato (PLAY/PAUSE) da STATE
