@@ -17,9 +17,11 @@ const __syncHandlers: SyncHandler[] = [];
 
 
 
+// --- API per il canale di sync ---
 export function onSyncMessage(fn: SyncHandler) {
   if (typeof fn === "function") __syncHandlers.push(fn);
 }
+
 
 /** Chiamato dall’overlay quando la webcam è pronta */
 export function setLocalStream(stream: MediaStream) {
@@ -29,19 +31,28 @@ export function setLocalStream(stream: MediaStream) {
   // se la PC esiste già, attacca subito le tracce
   if (__rtcSingleton && _localStream) {
     _localStream.getTracks().forEach((t) => {
-      try { __rtcSingleton!.pc.addTrack(t, _localStream as MediaStream); } catch {}
+      try {
+        __rtcSingleton!.pc.addTrack(t, _localStream as MediaStream);
+      } catch {
+        // ignore
+      }
     });
   }
 }
+
 
 /** Attende la disponibilità della webcam */
 export function waitForLocalStream(timeoutMs = 10000): Promise<boolean> {
   if (_localStream) return Promise.resolve(true);
   return new Promise((resolve) => {
     const t = window.setTimeout(() => resolve(false), timeoutMs);
-    _waiters.push((ok) => { clearTimeout(t); resolve(ok); });
+    _waiters.push((ok) => {
+      clearTimeout(t);
+      resolve(ok);
+    });
   });
 }
+
 
 /** Registra callback per lo stream remoto */
 export function onRemoteStream(cb: (s: MediaStream) => void) {
@@ -49,15 +60,20 @@ export function onRemoteStream(cb: (s: MediaStream) => void) {
   if (_lastRemoteStream) cb(_lastRemoteStream);
 }
 
+
+/** Accesso al singleton RTCLink (se già creato) */
 export function getSingletonRTC() {
   return __rtcSingleton;
 }
+
 
 /** Helper di invio sul DataChannel "sync" */
 export function sendSync(payload: any) {
   const rtc = __rtcSingleton;
   if (!rtc || !rtc.dc || rtc.dc.readyState !== "open") return;
-  const obj = { __ch: "sync", origin: "me", ...payload };
+
+  const obj = { __ch: "sync", ...payload };
+
   try {
     rtc.dc.send(JSON.stringify(obj));
   } catch (e) {
@@ -67,6 +83,8 @@ export function sendSync(payload: any) {
 
 
 
+
+// --- Implementazione RTCPeerConnection / DataChannel ---
 export class RTCLink {
 
   public pc: RTCPeerConnection;
@@ -101,7 +119,9 @@ export class RTCLink {
 
     // Media: in uscita
     if (_localStream) {
-      _localStream.getTracks().forEach((t) => this.pc.addTrack(t, _localStream as MediaStream));
+      _localStream
+        .getTracks()
+        .forEach((t) => this.pc.addTrack(t, _localStream as MediaStream));
     }
 
     // ICE logging (facoltativo)
@@ -113,6 +133,8 @@ export class RTCLink {
     this.pc.ondatachannel = (ev) => {
       if (ev.channel.label === "sync") {
         this.attachDc(ev.channel);
+      } else {
+        console.log("[RTC] Unknown data channel:", ev.channel.label);
       }
     };
   }
@@ -120,21 +142,23 @@ export class RTCLink {
 
   private attachDc(dc: RTCDataChannel) {
     this.dc = dc;
-    this.dc.onopen = () => console.log("[RTC] DataChannel open");
-    this.dc.onclose = () => console.log("[RTC] DataChannel close");
+    this.dc.onopen = () => console.log("[RTC] DataChannel 'sync' open");
+    this.dc.onclose = () => console.log("[RTC] DataChannel 'sync' close");
     this.dc.onerror = (e) => console.error("[RTC] DataChannel error", e);
     this.dc.onmessage = (e) => {
       try {
         const obj = JSON.parse(e.data);
-        if (obj && (obj.__ch === "sync" || obj.type)) {
-          // Normalizzazione: il mittente marca origin:"me". Per il ricevente deve risultare "peer".
-          if (obj.origin === "me") obj.origin = "peer";
-          __syncHandlers.forEach((fn) => {
-            try { fn(obj); } catch (err) { console.error("[RTC] sync handler error", err); }
-          });
-        } else {
-          console.log("[RTC] DC (non-sync) message:", obj);
+        if (!obj || obj.__ch !== "sync") {
+          console.log("[RTC] DC message (ignored non-sync):", obj);
+          return;
         }
+        __syncHandlers.forEach((fn) => {
+          try {
+            fn(obj);
+          } catch (err) {
+            console.error("[RTC] sync handler error", err);
+          }
+        });
       } catch {
         console.log("[RTC] DC (text) message:", e.data);
       }
@@ -146,14 +170,18 @@ export class RTCLink {
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     // DC lato caller
     if (!this.dc) {
-      this.attachDc(this.pc.createDataChannel("sync"));
+      const dc = this.pc.createDataChannel("sync");
+      this.attachDc(dc);
     }
 
     // Assicura tracce locali presenti (se disponibili al momento)
     if (_localStream) {
       _localStream.getTracks().forEach((t) => {
-        // evita doppie addTrack (RTCPeerConnection le deduplica comunque)
-        try { this.pc.addTrack(t, _localStream as MediaStream); } catch {}
+        try {
+          this.pc.addTrack(t, _localStream as MediaStream);
+        } catch {
+          // ignore doppie addTrack
+        }
       });
     }
 
@@ -182,8 +210,11 @@ export class RTCLink {
 
 
   /** Applica un SDP remoto. Se è un'offerta, restituisce l'answer. */
-  async applyRemote(desc: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit | void> {
+  async applyRemote(
+    desc: RTCSessionDescriptionInit
+  ): Promise<RTCSessionDescriptionInit | void> {
     if (!desc || !desc.type) throw new Error("Invalid remote description");
+
     if (desc.type === "offer") {
       if (this.appliedOffer) {
         console.warn("[RTC] Duplicate OFFER ignored");
@@ -191,8 +222,10 @@ export class RTCLink {
         await this.pc.setRemoteDescription(desc);
         this.appliedOffer = true;
       }
+
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
+
       // Attendi ICE gathering (facoltativo)
       await new Promise<void>((res) => {
         if (this.pc.iceGatheringState === "complete") return res();
@@ -205,6 +238,7 @@ export class RTCLink {
         this.pc.addEventListener("icegatheringstatechange", onState as any);
         setTimeout(() => res(), 1500);
       });
+
       return this.pc.localDescription as RTCSessionDescriptionInit;
     } else {
       // answer

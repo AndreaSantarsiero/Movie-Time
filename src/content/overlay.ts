@@ -67,13 +67,19 @@ export function createOverlay() {
       button:hover { background: rgba(255,255,255,0.25); }
       button.off { background: rgba(255, 60, 60, 0.35); }
       button.off:hover { background: rgba(255, 60, 60, 0.5); }
+      #sync-status {
+        font-size: 12px;
+        opacity: .85;
+        align-self: center;
+        white-space: nowrap;
+      }
     </style>
     <div id="wrapper">
       <video id="remote" autoplay playsinline></video>
       <video id="local" autoplay muted playsinline></video>
       <div id="controls">
         <button id="sync" title="Enable/Disable Sync">🔄</button>
-        <span id="sync-status" style="font-size:12px; opacity:.85; align-self:center;">Match: —</span>
+        <span id="sync-status">Sync: off</span>
         <button id="mute">🎙️</button>
         <button id="cam">🎥</button>
         <button id="close">❌</button>
@@ -84,43 +90,36 @@ export function createOverlay() {
 
 
   // Auto-hide controls (mostra su attività/tocco, nascondi dopo idle)
-  let __hideTimer: number | null = null;
+  let hideTimer: number | null = null;
 
   function showControls(temp: boolean = true) {
     container.classList.add("show-controls");
     if (temp) {
-      if (__hideTimer !== null) window.clearTimeout(__hideTimer);
-      __hideTimer = window.setTimeout(() => {
+      if (hideTimer !== null) window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => {
         container.classList.remove("show-controls");
       }, 1500); // tempo di visibilità dopo l'ultima attività
     }
   }
 
-  // Mostra temporaneamente quando l'utente muove il mouse o tocca l'overlay
   container.addEventListener("mousemove", () => showControls(true), { passive: true });
   container.addEventListener("touchstart", () => showControls(true), { passive: true });
 
-  // Mantieni visibile mentre si interagisce via tastiera (focus su bottoni)
   shadow.addEventListener("focusin", () => showControls(false));
   shadow.addEventListener("focusout", () => showControls(true));
 
-  // Mostra brevemente all'avvio per far capire che ci sono i controlli
   showControls(true);
 
-  // Gestione focus dei controlli per farli nascondere dopo click/tap 
   const controlsEl = shadow.getElementById("controls") as HTMLElement | null;
 
   if (controlsEl) {
-    // Dopo il click col mouse/touch, rimuovi il focus dal bottone e avvia il timer di hide
-    // (PointerEvent copre mouse/pen/touch)
     const onPointerUp = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;
       const btn = target?.closest("button") as HTMLButtonElement | null;
-      if (btn) btn.blur();       // termina :focus-within quando non si usa tastiera
-      showControls(true);        // parte il timer di auto-hide
+      if (btn) btn.blur();
+      showControls(true);
     };
 
-    // Fallback per ambienti senza PointerEvent (vecchi browser)
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       const btn = target?.closest("button") as HTMLButtonElement | null;
@@ -128,7 +127,6 @@ export function createOverlay() {
       showControls(true);
     };
 
-    // Registra gli handler in modo sicuro
     if ("onpointerup" in window) {
       controlsEl.addEventListener("pointerup", onPointerUp as EventListener, { passive: true });
     } else {
@@ -136,7 +134,6 @@ export function createOverlay() {
     }
   }
 
-  // ascolta il keydown sull'HOST (container) invece che sullo shadow
   container.addEventListener("keydown", (ev: KeyboardEvent) => {
     const k = ev.key;
     if (
@@ -144,24 +141,23 @@ export function createOverlay() {
       k === "ArrowLeft" || k === "ArrowRight" ||
       k === "ArrowUp" || k === "ArrowDown"
     ) {
-      showControls(false); // resta visibile finché c'è focus
+      showControls(false);
     }
   });
 
-  // Nascondi quando il mouse esce dall'overlay (se non c'è più focus dentro)
   container.addEventListener("mouseleave", () => {
     const hasFocusInside = !!shadow.activeElement && shadow.contains(shadow.activeElement);
     if (!hasFocusInside) {
-      showControls(true); // farà partire il timer e poi spariscono
+      showControls(true);
     }
   });
 
 
 
-
+  
   document.body.appendChild(container);
 
-  // drag…
+  // Drag semplice del contenitore
   let isDragging = false, offsetX = 0, offsetY = 0;
   container.addEventListener("mousedown", (e) => {
     if ((e.target as HTMLElement).tagName === "BUTTON") return;
@@ -177,7 +173,7 @@ export function createOverlay() {
   window.addEventListener("mouseup", () => (isDragging = false));
 
   const btnSync  = shadow.getElementById("sync") as HTMLButtonElement;
-  const txtMatch = shadow.getElementById("sync-status") as HTMLSpanElement;
+  const txtStatus = shadow.getElementById("sync-status") as HTMLSpanElement;
   const local = shadow.getElementById("local") as HTMLVideoElement;
   const remote = shadow.getElementById("remote") as HTMLVideoElement;
   const btnMute = shadow.getElementById("mute") as HTMLButtonElement;
@@ -187,19 +183,47 @@ export function createOverlay() {
   // Avvia videochat
   initVideoChat(local, remote);
 
-  // toggle Sync: chi clicca diventa leader
+  // Toggle Sync (usa setSyncEnabled(enabled: boolean))
   let syncOn = false;
+
   btnSync.onclick = async () => {
     syncOn = !syncOn;
-    await setSyncEnabled(syncOn, /*becomeLeader*/ true);
-    btnSync.classList.toggle("off", !syncOn);
-    btnSync.setAttribute("aria-pressed", String(syncOn));
+    try {
+      await setSyncEnabled(syncOn);
+    } catch (err) {
+      console.error("[Overlay] Failed to toggle sync:", err);
+    }
   };
 
-  // aggiorna badge Match/ruolo e stato bottone
-  onSyncUiUpdate((s) => {
-    txtMatch.textContent = `Match: ${s.match ? "OK" : "NO"}${s.enabled ? ` · ${s.role}` : ""}`;
-    btnSync.classList.toggle("off", !s.enabled);
+  // Aggiorna badge stato sync in base alla UiState del protocollo
+  onSyncUiUpdate((state) => {
+    syncOn = state.enabled;
+
+    btnSync.classList.toggle("off", !state.enabled);
+    btnSync.setAttribute("aria-pressed", String(state.enabled));
+
+    const phaseLabel = (() => {
+      switch (state.phase) {
+        case "disabled": return "off";
+        case "activating": return "activating";
+        case "synced": return "synced";
+        case "degraded": return "degraded";
+        default: return state.phase;
+      }
+    })();
+
+    const roleLabel = state.role !== "none" ? ` · ${state.role}` : "";
+
+    let compatLabel = "";
+    if (state.compatible === "yes") compatLabel = " · match OK";
+    if (state.compatible === "no") compatLabel = " · mismatch";
+
+    const driftLabel =
+      typeof state.lastDriftSeconds === "number"
+        ? ` · Δ ${state.lastDriftSeconds.toFixed(1)}s`
+        : "";
+
+    txtStatus.textContent = `Sync: ${phaseLabel}${roleLabel}${compatLabel}${driftLabel}`;
   });
 
   btnMute.onclick = () => toggleMute(local, btnMute);
@@ -210,22 +234,20 @@ export function createOverlay() {
 
 
 async function initVideoChat(local: HTMLVideoElement, remote: HTMLVideoElement) {
-  // Chiede webcam + microfono (l’utente deve consentire)
   const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   local.srcObject = stream;
 
-  // Passa lo stream al layer WebRTC
   setLocalStream(stream);
 
-  // Quando arriva il remoto, mostrane il video
   onRemoteStream((s) => {
     remote.srcObject = s;
-    remote.muted = false; // vuoi sentire l'altra persona
-    const tryPlay = () => remote.play().catch((err) => {
-      console.warn("[Overlay] Autoplay blocked:", err?.name);
-      // Mostra un pulsante "Avvia"
-      showClickToStart(remote);
-    });
+    remote.muted = false;
+    const tryPlay = () =>
+      remote.play().catch((err) => {
+        console.warn("[Overlay] Autoplay blocked:", err?.name);
+        showClickToStart(remote);
+      });
+
     if (remote.readyState >= 2) tryPlay();
     else remote.onloadedmetadata = () => tryPlay();
   });
@@ -255,9 +277,9 @@ async function initVideoChat(local: HTMLVideoElement, remote: HTMLVideoElement) 
 function toggleMute(local: HTMLVideoElement, btn?: HTMLButtonElement) {
   const stream = local.srcObject as MediaStream;
   if (!stream) return;
-  // flip stato audio
+
   stream.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
-  // aggiorna sfondo bottone (rosso se OFF)
+
   if (btn) {
     const micOn = stream.getAudioTracks().some((t) => t.enabled);
     btn.classList.toggle("off", !micOn);
@@ -270,9 +292,9 @@ function toggleMute(local: HTMLVideoElement, btn?: HTMLButtonElement) {
 function toggleCam(local: HTMLVideoElement, btn?: HTMLButtonElement) {
   const stream = local.srcObject as MediaStream;
   if (!stream) return;
-  // flip stato video
+
   stream.getVideoTracks().forEach((t) => (t.enabled = !t.enabled));
-  // aggiorna sfondo bottone (rosso se OFF)
+
   if (btn) {
     const camOn = stream.getVideoTracks().some((t) => t.enabled);
     btn.classList.toggle("off", !camOn);

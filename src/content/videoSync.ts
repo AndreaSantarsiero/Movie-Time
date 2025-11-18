@@ -1,429 +1,618 @@
-// API:
-//   setupVideoSync()
-//   setSyncEnabled(on: boolean, becomeLeader?: boolean)   // default leader lato singolo
-//   onSyncUiUpdate(cb: (s: UiState) => void)
-//
+/**
+ * API esterna:
+ * setupVideoSync()
+ * setSyncEnabled(enabled: boolean)
+ * onSyncUiUpdate(cb: (state: UiState) => void)
+ * 
+ * Si appoggia a:
+ *    - webrtc.ts per l'invio/ricezione dei messaggi di sync (sendSync / onSyncMessage)
+ *    - uno script di pagina che espone:
+ *        → window.postMessage({ source: "movie-time-content", type: "HELLO_REQUEST" }, "*")
+ *        ← { source: "movie-time-bridge", type: "HELLO_RESPONSE", info: { duration: number, ... } }
+ *        ← { source: "movie-time-bridge", type: "TICK", time: number, paused: boolean }
+ *        → window.postMessage({ source: "movie-time-content", type: "PLAY" | "PAUSE" | "SEEK" | "SET_RATE" | "CLEAR_RATE", ... }, "*")
+*/
+
 
 import { sendSync, onSyncMessage } from "./webrtc";
-
-// —— Parametri di sincronizzazione ——
-const HEARTBEAT_MS = 500;
-const SEEK_LOCAL_DETECT_S = 1.50;   // per takeover quando follower interagisce davvero
-
-// Anti-jitter
-const DISCRETE_COOLDOWN_MS = 900;    // min distanza tra PLAY/PAUSE applicati dal follower
-const DRIFT_SEEK_COOLDOWN_MS = 2000; // min distanza tra SEEK di correzione dal follower
-const STATE_PAUSE_HYST_MS = 900;     // tempo minimo di coerenza (da STATE) per cambiare pausa
-const DRIFT_PLAYING_THRESHOLD_S = 1.6;
-const DRIFT_PAUSED_THRESHOLD_S  = 2.5;
-const SUPPRESS_MS = 800;             // evita takeover da TICK indotti da azione remota
-
-// Correzione dolce (smoothing)
-const SOFT_DRIFT_MIN_S = 0.25;     // drift minimo per attivare smoothing (solo in play)
-const SOFT_RATE_DELTA = 0.04;      // ±4%: 1.04 se sono indietro, 0.96 se sono avanti
-const SOFT_CORRECTION_MS = 1500;   // durata della correzione dolce
+import { syncConfig } from "./syncConfig";
 
 
-// Leadership stability
-const TAKEOVER_GRACE_MS = 3000;          // tempo minimo dall'ultima azione remota applicata
-const ROLE_SWITCH_COOLDOWN_MS = 5000;    // tempo minimo tra cambi di ruolo locali
-const LEADER_FRESH_MS = 4000;            // finestra entro cui il leader è considerato "vivo"
 
-// Matching robusto
-const DURATION_TOL_S = 180;
 
-type Role = "idle" | "leader" | "follower";
+// Ruolo logico nel protocollo
+type SyncRole = "leader" | "follower" | "none";
 
-type ContentInfo = {
-  contentId: string | null;
-  title: string | null;
-  duration: number | null;
-  providerHost?: string | null; // e.g., "www.netflix.com"
-};
+// Stato del protocollo lato client
+type SyncPhase = "disabled" | "activating" | "synced" | "degraded";
 
-type UiState = {
-  enabled: boolean;
-  role: Role;
-  match: boolean;
-  lastDrift?: number;
-};
+export interface UiState {
+  enabled: boolean;               // toggle locale del sync
+  phase: SyncPhase;               // fase del protocollo
+  role: SyncRole;                 // leader / follower / none
+  compatible: "unknown" | "yes" | "no";
+  lastDriftSeconds?: number;      // differenza leader/follower nell'ultimo AUTO/MANUAL
+}
 
-// —— Stato locale ——
-let enabled = false;
-let role: Role = "idle";
 
-let myContent: ContentInfo = { contentId: null, title: null, duration: null, providerHost: null };
-let peerContent: ContentInfo | null = null;
 
-let lastTickTime = 0;
-let lastPaused = true;
-let prevTime = 0;
-let prevPaused = true;
+// Messaggi scambiati sul canale di sync (via WebRTC)
+interface ActivateMessage {
+  type: "ACTIVATE";
+  activationTimestamp: number;
+  duration: number;
+  peerId: string;
+}
 
+interface DeactivateMessage {
+  type: "DEACTIVATE";
+}
+
+interface FullStateMessage {
+  type: "FULL_STATE";
+  time: number;
+  paused: boolean;
+  duration: number;
+  playbackRate: number;
+  sentAt: number;
+}
+
+interface AutoStateMessage {
+  type: "AUTO_STATE";
+  time: number;
+  paused: boolean;
+  sentAt: number;
+}
+
+interface ManualStateMessage {
+  type: "MANUAL_STATE";
+  time: number;
+  paused: boolean;
+  sentAt: number;
+}
+
+type SyncWireMessage =
+  | ActivateMessage
+  | DeactivateMessage
+  | FullStateMessage
+  | AutoStateMessage
+  | ManualStateMessage;
+
+// Informazioni di attivazione locale/remota
+interface ActivationInfo {
+  activationTimestamp: number;
+  duration: number;
+}
+
+
+
+// ---- Costanti interne (non di config) ----
+const LOCAL_SEEK_DETECT_THRESHOLD_SECONDS = 1.0;
+const REMOTE_UPDATE_SUPPRESS_MS = 400;
+
+
+// ---- Stato interno ----
+let syncEnabled = false;
+let phase: SyncPhase = "disabled";
+let role: SyncRole = "none";
+
+let compatible: "unknown" | "yes" | "no" = "unknown";
+
+let localActivation: ActivationInfo | null = null;
+let remoteActivation: ActivationInfo | null = null;
+
+let localDurationSeconds: number | null = null;
+let localPositionSeconds = 0;
+let localPaused = true;
+
+let lastTickPositionSeconds = 0;
+let lastTickPaused = true;
+
+// heartbeat leader → follower
 let heartbeatTimer: number | null = null;
-let seq = 0;
 
-const uiHandlers: Array<(s: UiState) => void> = [];
+// timeout lato follower
+let heartbeatWatchdogTimer: number | null = null;
+let lastHeartbeatAt = 0;
 
-// Peer identity (negoziazione deterministica)
+// finestra di protezione lato follower dopo un manuale locale
+let lastLocalManualAt = 0;
+
+// flag per ignorare TICK causati da comandi remoti
+let suppressLocalDetectionUntil = 0;
+
+// peer identity per tie-break
 const myPeerId = makePeerId();
-let peerPeerId: string | null = null;
+let remotePeerId: string | null = null;
 
-// Anti-loop / anti-jitter timers
-let suppressUntil = 0;                   // soppressione takeover dopo azione remota
-let lastSeekApplyAt = 0;                 // ultimo SEEK applicato dal follower
-let lastPauseChangeApplyAt = 0;          // ultimo PLAY/PAUSE applicato dal follower
-let softCorrUntil = 0;                   // fine finestra attiva della correzione dolce
-let pauseMismatchSince: number | null = null; // inizio del disallineamento stato (da STATE)
-
-// Leadership tracking
-let lastLeaderMsgAt = 0;                 // ultimo messaggio ricevuto da leader (PLAY/PAUSE/SEEK/STATE/TAKEOVER)
-let lastRemoteAffectAt = 0;              // ultima volta che ho APPLICATO un comando remoto
-let lastRoleSwitchAt = 0;                // ultimo cambio del mio ruolo
+// UI listeners
+const uiListeners: Array<(s: UiState) => void> = [];
 
 
 
-// —— Utils ——
+
+// ---- Utils ----
 function makePeerId(): string {
   const rnd = crypto.getRandomValues(new Uint8Array(5));
   return Array.from(rnd, (b) => b.toString(16).padStart(2, "0")).join("");
 }
-function now(): number { return Date.now(); }
 
-function normalizeTitle(s: string | null | undefined): string {
-  if (!s) return "";
-  return s.toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-function titlesSimilar(a: string | null, b: string | null): boolean {
-  const A = normalizeTitle(a);
-  const B = normalizeTitle(b);
-  if (!A || !B) return false;
-  if (A.length < 5 || B.length < 5) return A === B;
-  return A.includes(B) || B.includes(A) || A === B;
+function nowMs(): number {
+  return Date.now();
 }
 
+function log(...args: unknown[]) {
+  if (!syncConfig.debugLogs) return;
+  console.debug("[Sync]", ...args);
+}
 
+function postToPage(message: any) {
+  window.postMessage({ source: "movie-time-content", ...message }, "*");
+}
 
-// —— UI ——
-function emitUi(extra: Partial<UiState> = {}) {
+function emitUi(partial: Partial<UiState> = {}) {
   const state: UiState = {
-    enabled,
+    enabled: syncEnabled,
+    phase,
     role,
-    match: computeMatch(),
-    ...extra,
+    compatible,
+    lastDriftSeconds: undefined,
+    ...partial,
   };
-  uiHandlers.forEach((fn) => {
-    try { fn(state); } catch (e) { console.error("[Sync] UI handler error:", e); }
+  uiListeners.forEach((fn) => {
+    try {
+      fn(state);
+    } catch (err) {
+      console.error("[Sync] UI handler error", err);
+    }
   });
 }
-export function onSyncUiUpdate(fn: (s: UiState) => void) {
-  uiHandlers.push(fn);
+
+
+
+
+// ---- API esterna ----
+export function onSyncUiUpdate(handler: (state: UiState) => void) {
+  uiListeners.push(handler);
   emitUi();
 }
 
 
-
-// —— Matching contenuto ——
-function computeMatch(): boolean {
-  if (!myContent || !peerContent) return false;
-  if (myContent.contentId && peerContent.contentId && myContent.contentId === peerContent.contentId) return true;
-
-  const sameProvider = !!myContent.providerHost && !!peerContent.providerHost && myContent.providerHost === peerContent.providerHost;
-  const d1 = myContent.duration ?? 0;
-  const d2 = peerContent.duration ?? 0;
-  const durOk = d1 > 0 && d2 > 0 ? Math.abs(d1 - d2) <= DURATION_TOL_S : true;
-  const titleOk = titlesSimilar(myContent.title ?? null, peerContent.title ?? null);
-  return sameProvider && durOk && titleOk;
-}
-
-function postToPage(msg: any) {
-  window.postMessage({ source: "movie-time-content", ...msg }, "*");
-}
-
-function startSoftCorrection(deltaRate: number, durationMs = SOFT_CORRECTION_MS) {
-  // Non fare smoothing se siamo in pausa
-  if (lastPaused) return;
-
-  // Evita di impilare correzioni
-  const tNow = now();
-  if (tNow < softCorrUntil) return;
-
-  softCorrUntil = tNow + durationMs;
-
-  // Imposta il rate lato pagina
-  postToPage({ type: "SET_RATE", rate: 1 + deltaRate });
-
-  // Ripristina il rate a fine finestra
-  window.setTimeout(() => {
-    if (now() >= softCorrUntil) {
-      postToPage({ type: "CLEAR_RATE" });
-      softCorrUntil = 0;
-    }
-  }, durationMs + 50);
-}
-
-// Applica un comando remoto, avvia soppressione, traccia "affect"
-function applyRemoteCommand(msg: { type: "PLAY" | "PAUSE" | "SEEK"; time?: number }) {
-  suppressUntil = now() + SUPPRESS_MS;
-  lastRemoteAffectAt = now();
-  if (msg.type === "PLAY") {
-    postToPage({ type: "PLAY" });
-  } else if (msg.type === "PAUSE") {
-    postToPage({ type: "PAUSE" });
-  } else if (msg.type === "SEEK") {
-    postToPage({ type: "SEEK", time: Number(msg.time) || 0 });
-  }
-}
-
-// —— Elezione ruolo deterministica ——
-function electRoleIfNeeded() {
-  if (!enabled || !peerPeerId) return;
-  if (role === "leader") {
-    if (myPeerId < peerPeerId) { role = "follower"; stopHeartbeat(); } else { startHeartbeat(); }
-    emitUi();
-  } else if (role === "follower") {
-    stopHeartbeat();
-    emitUi();
-  }
-}
-
-
-
-// —— Setup pagina <-> content ——
 export function setupVideoSync() {
-  try { myContent.providerHost = location.hostname || null; } catch { myContent.providerHost = null; }
-  postToPage({ type: "HELLO_REQUEST" });
-
-  window.addEventListener("message", (ev) => {
-    const d = ev.data;
-    if (!d || d.source !== "movie-time-bridge") return;
-
-    if (d.type === "HELLO_RESPONSE" && d.info) {
-      myContent = {
-        contentId: d.info.contentId ?? null,
-        title: d.info.title ?? null,
-        duration: typeof d.info.duration === "number" ? d.info.duration : null,
-        providerHost: myContent.providerHost ?? (location.hostname || null),
-      };
-      sendSync({ type: "HELLO", content: myContent, peerId: myPeerId, seq: ++seq });
-      emitUi();
-      electRoleIfNeeded();
-      return;
-    }
-
-    if (d.type === "TICK") {
-      lastTickTime = Number(d.time) || 0;
-      lastPaused = !!d.paused;
-
-      const localSeek = Math.abs(lastTickTime - prevTime) > SEEK_LOCAL_DETECT_S;
-      const playChange = prevPaused && !lastPaused;
-      const pauseChange = !prevPaused && lastPaused;
-
-      if (enabled) {
-        const tNow = now();
-        const underSuppress = tNow < suppressUntil;
-
-        if (role === "leader") {
-          if (playChange) sendSync({ type: "PLAY", time: lastTickTime, seq: ++seq });
-          else if (pauseChange) sendSync({ type: "PAUSE", time: lastTickTime, seq: ++seq });
-          if (localSeek) sendSync({ type: "SEEK", time: lastTickTime, seq: ++seq });
-        } else if (role === "follower") {
-          // Takeover SOLO se:
-          // - reale interazione locale (play/pause/seek)
-          // - non sotto soppressione
-          // - leader non fresco (nessun msg recente)
-          // - è passato il grace da ultimo remote affect
-          // - rispetto cooldown tra cambi ruolo
-          const hasLocalIntent = (playChange || pauseChange || localSeek);
-          const leaderIsFresh = (tNow - lastLeaderMsgAt) <= LEADER_FRESH_MS;
-          const graceOk = (tNow - lastRemoteAffectAt) > TAKEOVER_GRACE_MS;
-          const roleCooldownOk = (tNow - lastRoleSwitchAt) > ROLE_SWITCH_COOLDOWN_MS;
-
-          if (hasLocalIntent && !underSuppress && !leaderIsFresh && graceOk && roleCooldownOk) {
-            role = "leader";
-            lastRoleSwitchAt = tNow;
-            startHeartbeat();
-            const action = localSeek ? "SEEK" : (lastPaused ? "PAUSE" : "PLAY");
-            sendSync({ type: "TAKEOVER", action, time: lastTickTime, seq: ++seq });
-            if (action === "SEEK") sendSync({ type: "SEEK", time: lastTickTime, seq: ++seq });
-            if (action === "PLAY") sendSync({ type: "PLAY", time: lastTickTime, seq: ++seq });
-            if (action === "PAUSE") sendSync({ type: "PAUSE", time: lastTickTime, seq: ++seq });
-            emitUi();
-          }
-        }
-      }
-
-      prevTime = lastTickTime;
-      prevPaused = lastPaused;
-      return;
-    }
-  });
-
-
-
-  // —— DataChannel (peer → me) ——
-  onSyncMessage((msg) => {
-    if (!msg || (msg.__ch !== "sync" && !msg.type)) return;
-
-    // Ogni messaggio ricevuto aggiorna freschezza del leader
-    lastLeaderMsgAt = now();
-
-    // HELLO del peer
-    if (msg.type === "HELLO" && msg.content) {
-      peerContent = {
-        contentId: msg.content.contentId ?? null,
-        title: msg.content.title ?? null,
-        duration: typeof msg.content.duration === "number" ? msg.content.duration : null,
-        providerHost: msg.content.providerHost ?? null,
-      };
-      peerPeerId = typeof msg.peerId === "string" && msg.peerId ? msg.peerId : peerPeerId;
-      electRoleIfNeeded();
-      emitUi();
-      return;
-    }
-
-    // Comandi discreti → lui Leader, io Follower
-    if (msg.type === "PLAY" || msg.type === "PAUSE" || msg.type === "SEEK" || msg.type === "TAKEOVER") {
-      if (role !== "follower") {
-        role = "follower";
-        lastRoleSwitchAt = now();
-        stopHeartbeat();
-        emitUi();
-      }
-      if (!computeMatch()) return;
-
-      const tNow = now();
-
-      if (msg.type === "TAKEOVER") {
-        const act = msg.action as "PLAY" | "PAUSE" | "SEEK";
-        if (act === "PLAY") {
-          if (tNow - lastPauseChangeApplyAt > DISCRETE_COOLDOWN_MS) {
-            applyRemoteCommand({ type: "PLAY" });
-            lastPauseChangeApplyAt = tNow;
-          }
-        } else if (act === "PAUSE") {
-          if (tNow - lastPauseChangeApplyAt > DISCRETE_COOLDOWN_MS) {
-            applyRemoteCommand({ type: "PAUSE" });
-            lastPauseChangeApplyAt = tNow;
-          }
-        } else if (act === "SEEK") {
-          if (tNow - lastSeekApplyAt > DRIFT_SEEK_COOLDOWN_MS) {
-            applyRemoteCommand({ type: "SEEK", time: Number(msg.time) || 0 });
-            lastSeekApplyAt = tNow;
-          }
-        }
-      } else if (msg.type === "PLAY") {
-        if (tNow - lastPauseChangeApplyAt > DISCRETE_COOLDOWN_MS) {
-          applyRemoteCommand({ type: "PLAY" });
-          lastPauseChangeApplyAt = tNow;
-        }
-      } else if (msg.type === "PAUSE") {
-        if (tNow - lastPauseChangeApplyAt > DISCRETE_COOLDOWN_MS) {
-          applyRemoteCommand({ type: "PAUSE" });
-          lastPauseChangeApplyAt = tNow;
-        }
-      } else if (msg.type === "SEEK") {
-        if (tNow - lastSeekApplyAt > DRIFT_SEEK_COOLDOWN_MS) {
-          applyRemoteCommand({ type: "SEEK", time: Number(msg.time) || 0 });
-          lastSeekApplyAt = tNow;
-        }
-      }
-      return;
-    }
-
-    // STATE del Leader → solo follower lo usa
-    if (msg.type === "STATE") {
-      if (!computeMatch()) return;
-      if (role !== "follower") return;
-
-      const sentAt = Number(msg.sentAt) || Date.now();
-      const remoteTime = (Number(msg.time) || 0) + (Date.now() - sentAt) / 1000;
-      const drift = Math.abs(lastTickTime - remoteTime);
-      const tNow = now();
-
-      // Correzione tempo con deadband + cooldown
-      const playing = !lastPaused;
-      const driftThreshold = playing ? DRIFT_PLAYING_THRESHOLD_S : DRIFT_PAUSED_THRESHOLD_S;
-      if (drift > driftThreshold && (tNow - lastSeekApplyAt > DRIFT_SEEK_COOLDOWN_MS)) {
-        applyRemoteCommand({ type: "SEEK", time: remoteTime });
-        lastSeekApplyAt = tNow;
-      }
-      else if (playing && drift >= SOFT_DRIFT_MIN_S && drift < driftThreshold) {
-        // Se sto INDIETRO rispetto al leader → accelero di +4% (1.04).
-        // Se sto AVANTI → rallento di -4% (0.96).
-        const iAmBehind = lastTickTime < remoteTime;
-        const delta = iAmBehind ? +SOFT_RATE_DELTA : -SOFT_RATE_DELTA;
-        startSoftCorrection(delta);
-      }
-
-      // Hysteresis sullo stato (PLAY/PAUSE) da STATE
-      const leaderPaused = !!msg.paused;
-      if (leaderPaused !== lastPaused) {
-        if (pauseMismatchSince == null) pauseMismatchSince = tNow;
-        const stableFor = tNow - pauseMismatchSince;
-        if (stableFor >= STATE_PAUSE_HYST_MS && (tNow - lastPauseChangeApplyAt > DISCRETE_COOLDOWN_MS)) {
-          applyRemoteCommand({ type: leaderPaused ? "PAUSE" : "PLAY" });
-          lastPauseChangeApplyAt = tNow;
-          pauseMismatchSince = null;
-        }
-      } else {
-        pauseMismatchSince = null;
-      }
-
-      emitUi({ lastDrift: drift });
-    }
-  });
+  setupPageBridge();
+  setupSyncChannel();
+  startHeartbeatWatchdog();
+  emitUi();
 }
 
 
+export function setSyncEnabled(enabled: boolean) {
+  if (enabled === syncEnabled) return;
 
-// —— API ——
+  syncEnabled = enabled;
 
-// Di default chi abilita diventa leader (utile se il peer non ha ancora attivato)
-export async function setSyncEnabled(on: boolean, becomeLeader = true): Promise<void> {
-  enabled = on;
   if (!enabled) {
-    role = "idle";
-    stopHeartbeat();
+    sendDeactivate();
+    resetSyncState();
     emitUi();
     return;
   }
 
-  const shouldLead = becomeLeader || !peerPeerId;
-  role = shouldLead ? "leader" : "follower";
-  lastRoleSwitchAt = now();
-  emitUi();
+  // attivazione
+  phase = "activating";
+  compatible = "unknown";
+  localActivation = {
+    activationTimestamp: nowMs(),
+    duration: localDurationSeconds ?? 0,
+  };
+  log("Local activation", localActivation);
 
-  try { myContent.providerHost = location.hostname || null; } catch { myContent.providerHost = myContent.providerHost ?? null; }
+  sendActivate(localActivation);
+  tryEstablishSync();
+  emitUi();
+}
+
+
+
+
+// ---- Bridge con lo script di pagina ----
+function setupPageBridge() {
   postToPage({ type: "HELLO_REQUEST" });
 
-  if (myContent.contentId || myContent.duration || myContent.title) {
-    sendSync({ type: "HELLO", content: myContent, peerId: myPeerId, seq: ++seq });
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (!data || data.source !== "movie-time-bridge") return;
+
+    if (data.type === "HELLO_RESPONSE" && data.info) {
+      const dur = typeof data.info.duration === "number" ? data.info.duration : null;
+      localDurationSeconds = dur && isFinite(dur) && dur > 0 ? dur : null;
+      log("Received HELLO_RESPONSE with duration", localDurationSeconds);
+      return;
+    }
+
+    if (data.type === "TICK") {
+      handleLocalTick(Number(data.time) || 0, !!data.paused);
+      return;
+    }
+  });
+}
+
+
+function handleLocalTick(timeSeconds: number, paused: boolean) {
+  localPositionSeconds = timeSeconds;
+  localPaused = paused;
+
+  const prevPos = lastTickPositionSeconds;
+  const prevPaused = lastTickPaused;
+
+  lastTickPositionSeconds = timeSeconds;
+  lastTickPaused = paused;
+
+  if (!syncEnabled || phase !== "synced") return;
+
+  const now = nowMs();
+  if (now < suppressLocalDetectionUntil) {
+    return;
   }
 
-  if (role === "leader") startHeartbeat(); else stopHeartbeat();
-  electRoleIfNeeded();
+  const isSeek =
+    Math.abs(timeSeconds - prevPos) >= LOCAL_SEEK_DETECT_THRESHOLD_SECONDS;
+  const playChange = prevPaused && !paused;
+  const pauseChange = !prevPaused && paused;
+
+  const hasLocalUserAction = isSeek || playChange || pauseChange;
+  if (!hasLocalUserAction) return;
+
+  lastLocalManualAt = now;
+  sendManualState();
 }
 
-// —— Heartbeat STATE del Leader ——
-function startHeartbeat() {
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
-  heartbeatTimer = window.setInterval(() => {
-    if (!enabled || role !== "leader") return;
-    sendSync({
-      type: "STATE",
-      time: lastTickTime,
-      paused: lastPaused,
-      sentAt: Date.now(),
-      seq: ++seq,
-    });
-  }, HEARTBEAT_MS) as unknown as number;
+
+
+
+// ---- Gestione canale di sync (WebRTC) ----
+function setupSyncChannel() {
+  onSyncMessage((raw: any) => {
+    if (!raw || (raw.__ch && raw.__ch !== "sync")) return;
+    const msg: SyncWireMessage | undefined = normalizeIncomingMessage(raw);
+    if (!msg) return;
+
+    handleSyncMessage(msg);
+  });
 }
+
+
+function normalizeIncomingMessage(raw: any): SyncWireMessage | undefined {
+  switch (raw.type) {
+    case "ACTIVATE":
+    case "DEACTIVATE":
+    case "FULL_STATE":
+    case "AUTO_STATE":
+    case "MANUAL_STATE":
+      return raw as SyncWireMessage;
+    default:
+      return undefined;
+  }
+}
+
+
+function handleSyncMessage(msg: SyncWireMessage) {
+  switch (msg.type) {
+    case "ACTIVATE":
+      handleActivateMessage(msg);
+      break;
+    case "DEACTIVATE":
+      handleDeactivateMessage();
+      break;
+    case "FULL_STATE":
+      handleFullStateMessage(msg);
+      break;
+    case "AUTO_STATE":
+      handleAutoStateMessage(msg);
+      break;
+    case "MANUAL_STATE":
+      handleManualStateMessage(msg);
+      break;
+  }
+}
+
+
+
+
+// ---- Messaggi di handshake ----
+function sendActivate(info: ActivationInfo) {
+  const message: ActivateMessage = {
+    type: "ACTIVATE",
+    activationTimestamp: info.activationTimestamp,
+    duration: info.duration,
+    peerId: myPeerId,
+  };
+  sendSync(message);
+}
+
+
+function sendDeactivate() {
+  const message: DeactivateMessage = { type: "DEACTIVATE" };
+  sendSync(message);
+}
+
+
+function handleActivateMessage(msg: ActivateMessage) {
+  remoteActivation = {
+    activationTimestamp: msg.activationTimestamp,
+    duration: msg.duration,
+  };
+  remotePeerId = msg.peerId || remotePeerId;
+  log("Received ACTIVATE", remoteActivation, "peerId", remotePeerId);
+
+  tryEstablishSync();
+}
+
+
+function handleDeactivateMessage() {
+  log("Received DEACTIVATE from peer");
+  resetSyncState();
+  emitUi();
+}
+
+
+function tryEstablishSync() {
+  if (!syncEnabled) return;
+  if (!localActivation || !remoteActivation) return;
+  if (!remotePeerId) return;
+  if (phase === "synced") return;
+
+  const localDur = localActivation.duration;
+  const remoteDur = remoteActivation.duration;
+
+  if (
+    syncConfig.enabledDurationCheck &&
+    localDur > 0 &&
+    remoteDur > 0
+  ) {
+    const relDiff =
+      Math.abs(localDur - remoteDur) / Math.max(localDur, remoteDur);
+    if (relDiff > syncConfig.maxDurationDeltaRatio) {
+      compatible = "no";
+      log("Media duration mismatch, cannot sync", { localDur, remoteDur, relDiff });
+      emitUi();
+      return;
+    }
+  }
+
+  compatible = "yes";
+
+  const localTs = localActivation.activationTimestamp;
+  const remoteTs = remoteActivation.activationTimestamp;
+
+  let newRole: SyncRole;
+  if (localTs < remoteTs) {
+    newRole = "leader";
+  } else if (localTs > remoteTs) {
+    newRole = "follower";
+  } else {
+    if (!remotePeerId) return;
+    newRole = myPeerId < remotePeerId ? "leader" : "follower";
+  }
+
+  enterSyncedState(newRole);
+}
+
+
+
+
+// ---- Stato synced / leader / follower ----
+function enterSyncedState(newRole: SyncRole) {
+  role = newRole;
+  phase = "synced";
+  log("Entering synced state as", role);
+
+  if (syncConfig.forcePlaybackRateOnSync) {
+    enforcePlaybackRate();
+  }
+
+  if (role === "leader") {
+    sendFullState();
+    startHeartbeat();
+  } else {
+    stopHeartbeat();
+  }
+
+  emitUi();
+}
+
+
+function resetSyncState() {
+  phase = "disabled";
+  role = "none";
+  compatible = syncEnabled ? "unknown" : "unknown";
+  localActivation = null;
+  remoteActivation = null;
+  remotePeerId = null;
+  stopHeartbeat();
+}
+
+
+
+
+// ---- Full state / auto heartbeat / manual state ----
+function sendFullState() {
+  if (role !== "leader" || phase !== "synced") return;
+
+  const now = nowMs();
+  const msg: FullStateMessage = {
+    type: "FULL_STATE",
+    time: localPositionSeconds,
+    paused: localPaused,
+    duration: localDurationSeconds ?? 0,
+    playbackRate: syncConfig.forcePlaybackRateOnSync
+      ? syncConfig.forcedPlaybackRate
+      : 1.0,
+    sentAt: now,
+  };
+  log("Sending FULL_STATE", msg);
+  sendSync(msg);
+}
+
+
+function handleFullStateMessage(msg: FullStateMessage) {
+  if (!syncEnabled) return;
+
+  lastHeartbeatAt = nowMs();
+  if (phase !== "synced") {
+    role = role === "none" ? "follower" : role;
+    phase = "synced";
+  }
+
+  if (syncConfig.forcePlaybackRateOnSync) {
+    enforcePlaybackRate();
+  }
+
+  applyRemoteState(msg.time, msg.paused);
+  emitUi({ lastDriftSeconds: 0 });
+}
+
+
+function sendAutoState() {
+  if (role !== "leader" || phase !== "synced") return;
+
+  const now = nowMs();
+  const msg: AutoStateMessage = {
+    type: "AUTO_STATE",
+    time: localPositionSeconds,
+    paused: localPaused,
+    sentAt: now,
+  };
+  sendSync(msg);
+}
+
+
+function handleAutoStateMessage(msg: AutoStateMessage) {
+  if (!syncEnabled) return;
+  if (phase !== "synced") return;
+  if (role !== "follower") return;
+
+  const now = nowMs();
+  lastHeartbeatAt = now;
+
+  const timeSinceLocalManual = now - lastLocalManualAt;
+  if (timeSinceLocalManual < syncConfig.suppressAutoMessagesAfterLocalMs) {
+    log("Ignoring AUTO_STATE due to recent local manual action");
+    return;
+  }
+
+  const latencySeconds = (now - msg.sentAt) / 1000;
+  const leaderTime = msg.time + latencySeconds;
+  const drift = Math.abs(localPositionSeconds - leaderTime);
+
+  emitUi({ lastDriftSeconds: drift });
+
+  if (drift >= syncConfig.hardDesyncThresholdSeconds) {
+    log("Hard desync, applying AUTO_STATE", { drift, leaderTime, paused: msg.paused });
+    applyRemoteState(leaderTime, msg.paused);
+  }
+}
+
+
+function sendManualState() {
+  if (phase !== "synced") return;
+
+  const now = nowMs();
+  const msg: ManualStateMessage = {
+    type: "MANUAL_STATE",
+    time: localPositionSeconds,
+    paused: localPaused,
+    sentAt: now,
+  };
+  log("Sending MANUAL_STATE", msg);
+  sendSync(msg);
+}
+
+
+function handleManualStateMessage(msg: ManualStateMessage) {
+  if (!syncEnabled) return;
+  if (phase !== "synced") return;
+
+  const now = nowMs();
+  lastHeartbeatAt = now;
+
+  const latencySeconds = (now - msg.sentAt) / 1000;
+  const leaderTime = msg.time + latencySeconds;
+
+  const drift = Math.abs(localPositionSeconds - leaderTime);
+  log("Applying MANUAL_STATE (last manual wins)", { drift, leaderTime, paused: msg.paused });
+
+  applyRemoteState(leaderTime, msg.paused);
+  emitUi({ lastDriftSeconds: drift });
+}
+
+
+
+
+// ---- Applicazione dei comandi remoti al player ----
+function applyRemoteState(timeSeconds: number, paused: boolean) {
+  const now = nowMs();
+  suppressLocalDetectionUntil = now + REMOTE_UPDATE_SUPPRESS_MS;
+
+  if (syncConfig.forcePlaybackRateOnSync) {
+    enforcePlaybackRate();
+  }
+
+  postToPage({ type: "SEEK", time: timeSeconds });
+
+  if (paused) {
+    postToPage({ type: "PAUSE" });
+  } else {
+    postToPage({ type: "PLAY" });
+  }
+}
+
+
+function enforcePlaybackRate() {
+  postToPage({
+    type: "SET_RATE",
+    rate: syncConfig.forcedPlaybackRate,
+  });
+}
+
+
+
+
+// ---- Heartbeat leader e watchdog follower ----
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = window.setInterval(() => {
+    if (!syncEnabled || phase !== "synced" || role !== "leader") return;
+    sendAutoState();
+  }, syncConfig.autoSyncIntervalMs) as unknown as number;
+}
+
+
 function stopHeartbeat() {
-  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  if (heartbeatTimer !== null) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+
+function startHeartbeatWatchdog() {
+  if (heartbeatWatchdogTimer !== null) return;
+
+  heartbeatWatchdogTimer = window.setInterval(() => {
+    if (!syncEnabled) return;
+    if (phase === "degraded") return;
+    if (phase !== "synced") return;
+    if (role !== "follower") return;
+
+    const now = nowMs();
+    if (lastHeartbeatAt === 0) return;
+
+    const elapsed = now - lastHeartbeatAt;
+    if (elapsed > syncConfig.leaderHeartbeatTimeoutMs) {
+      phase = "degraded";
+      log("Leader heartbeat timeout, entering degraded state");
+      emitUi();
+    }
+  }, 1000) as unknown as number;
 }

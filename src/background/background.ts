@@ -26,33 +26,31 @@ async function getActiveTabId(): Promise<number | null> {
 
 
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log("[BG] Message received:", msg);
 
+  // --- Signaling WebRTC: CREATE_SESSION / CONNECT_SESSION / APPLY_ANSWER ---
   if (["CREATE_SESSION", "CONNECT_SESSION", "APPLY_ANSWER"].includes(msg?.type)) {
     (async () => {
       try {
-        // usa la tab attiva della finestra corrente
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        const tabId = tab?.id ?? null;
+        const tabId = await getActiveTabId();
         if (!tabId) {
           console.warn("[BG] No active tab found");
           sendResponse({ error: "NO_ACTIVE_TAB" });
           return;
         }
 
-        // aspetta che il content risponda al PING
         const ready = await waitForContent(tabId);
         if (!ready) {
           console.error("[BG] Content not ready on this page");
           sendResponse({
             error: "CONTENT_NOT_READY",
-            hint: "Apri una scheda Netflix, ricarica la pagina e riprova."
+            hint: "Apri una scheda Netflix, ricarica la pagina e riprova.",
           });
           return;
         }
 
-        console.log("[BG] Forwarding to content:", msg.type);
+        console.log("[BG] Forwarding signaling to content:", msg.type);
         chrome.tabs.sendMessage(tabId, msg, (res) => {
           const err = chrome.runtime.lastError;
           if (err) {
@@ -60,7 +58,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             sendResponse({ error: err.message });
             return;
           }
-          // se il content non risponde proprio, evita "unknown"
           sendResponse(res ?? { error: "NO_RESPONSE_FROM_CONTENT" });
         });
       } catch (e: any) {
@@ -69,12 +66,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
     })();
 
-    // IMPORTANTISSIMO: porta aperta SUBITO
-    return true;
+    return true; // keep message channel open
   }
 
+
+  // --- Registrazione tab Netflix ---
   if (msg?.type === "REGISTER_TAB") {
-    console.log("[BG] REGISTER_TAB from Netflix tab");
+    if (sender.tab?.id != null) {
+      console.log("[BG] REGISTER_TAB from Netflix tab", sender.tab.id);
+    } else {
+      console.log("[BG] REGISTER_TAB from unknown tab");
+    }
+    // niente response necessaria
+    return;
   }
 });
-

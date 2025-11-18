@@ -19,7 +19,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 
 
-// HANDLER EARLY: CREATE_SESSION / CONNECT_SESSION / APPLY_ANSWER
+/**
+ * 2) Signaling WebRTC (CREATE_SESSION / CONNECT_SESSION / APPLY_ANSWER)
+ *    Handler anticipato: deve rispondere anche se il resto del setup fallisce.
+ */
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || !["CREATE_SESSION", "CONNECT_SESSION", "APPLY_ANSWER"].includes(msg.type)) {
     return; // ignoriamo altri messaggi qui
@@ -76,7 +79,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 /**
  * 3) Init sicuro del resto (bridge/overlay/videosync)
- *    — lasciamo invariato, ma anche se fallisse qualcosa qui, l’handler early sopra è già attivo.
+ *    — anche se qualcosa fallisse qui, la parte di signaling è già attiva.
  */
 (function init() {
   try {
@@ -102,7 +105,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       console.error("[Content] Overlay failed:", e);
     }
 
-    // Video sync (messaggi page<->content)
+    // Video sync (bridge page<->content + protocollo)
     try {
       setupVideoSync();
       console.log("[Content] VideoSync set up");
@@ -129,10 +132,10 @@ function setupOverlayRelocation() {
 
   function getDefaultOverlayParent(): HTMLElement {
     const candidates = [
-      '.watch-video',
+      ".watch-video",
       '[data-uia="player"]',
-      '#appMountPoint',
-      'body'
+      "#appMountPoint",
+      "body",
     ];
     for (const sel of candidates) {
       const el = document.querySelector(sel);
@@ -142,39 +145,48 @@ function setupOverlayRelocation() {
   }
 
   function getOverlayEl(): HTMLElement {
-    const el = document.getElementById('movie-time-overlay');
-    if (!el) throw new Error('[MovieTime] overlay non trovato: assicurati che createOverlay() sia stato già chiamato');
+    const el = document.getElementById("movie-time-overlay");
+    if (!el) {
+      throw new Error(
+        "[MovieTime] overlay non trovato: assicurati che createOverlay() sia stato già chiamato"
+      );
+    }
     return el as HTMLElement;
   }
 
-  const __overlayDefaultParent = getDefaultOverlayParent();
-  const __overlayEl = getOverlayEl();
+  const defaultParent = getDefaultOverlayParent();
+  const overlayEl = getOverlayEl();
 
-  if (!__overlayEl.isConnected) {
-    __overlayDefaultParent.appendChild(__overlayEl);
+  if (!overlayEl.isConnected) {
+    defaultParent.appendChild(overlayEl);
   }
 
   function relocateOverlayForFullscreen() {
     const fsEl = document.fullscreenElement as HTMLElement | null;
     if (fsEl) {
-      if (__overlayEl.parentElement !== fsEl) {
-        fsEl.appendChild(__overlayEl);
+      if (overlayEl.parentElement !== fsEl) {
+        fsEl.appendChild(overlayEl);
       }
     } else {
-      if (__overlayEl.parentElement !== __overlayDefaultParent) {
-        __overlayDefaultParent.appendChild(__overlayEl);
+      if (overlayEl.parentElement !== defaultParent) {
+        defaultParent.appendChild(overlayEl);
       }
     }
   }
 
-  document.addEventListener('fullscreenchange', relocateOverlayForFullscreen);
+  document.addEventListener("fullscreenchange", relocateOverlayForFullscreen);
   relocateOverlayForFullscreen();
 
-  const __overlayObserver = new MutationObserver(() => {
-    const shouldBeParent = (document.fullscreenElement as HTMLElement | null) || __overlayDefaultParent;
-    if (!__overlayEl.isConnected || __overlayEl.parentElement !== shouldBeParent) {
-      shouldBeParent.appendChild(__overlayEl);
+  const overlayObserver = new MutationObserver(() => {
+    const shouldBeParent =
+      (document.fullscreenElement as HTMLElement | null) || defaultParent;
+    if (!overlayEl.isConnected || overlayEl.parentElement !== shouldBeParent) {
+      shouldBeParent.appendChild(overlayEl);
     }
   });
-  __overlayObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+  overlayObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
 }
