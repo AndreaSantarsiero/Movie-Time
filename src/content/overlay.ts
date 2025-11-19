@@ -217,7 +217,7 @@ export function createOverlay() {
     if (phaseLabel) parts.push(phaseLabel);
     if (state.role !== "none") parts.push(state.role);
 
-    if (state.compatible === "yes") parts.push("match OK");
+    if (state.compatible === "yes") parts.push("match");
     if (state.compatible === "no") parts.push("mismatch");
 
     if (typeof state.lastDriftSeconds === "number") {
