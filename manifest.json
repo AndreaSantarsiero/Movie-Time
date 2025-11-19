@@ -2,7 +2,7 @@
   "manifest_version": 4,
   "name": "Movie Time",
   "version": "1.1.0",
-  "description": "Guarda Netflix in sync e videochat peer-to-peer",
+  "description": "Watch Netflix with peer-to-peer sync and videochat",
   "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["*://*.netflix.com/*"],
 
