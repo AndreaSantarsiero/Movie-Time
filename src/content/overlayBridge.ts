@@ -6,17 +6,22 @@ function getPlayer() {
 }
 
 
+function getVideoElement(): HTMLVideoElement | null {
+  return document.querySelector("video");
+}
+
+
 
 function getContentInfo() {
   // Netflix: /watch/<id>
   const match = location.pathname.match(/\/watch\/(\d+)/);
   const contentId = match?.[1] ?? null;
 
-  const player = getPlayer();
-  const durationMs = typeof player?.getDuration === "function" ? Number(player.getDuration()) : NaN;
-
-  // convertiamo in secondi
-  const duration = Number.isFinite(durationMs) && durationMs > 0 ? durationMs / 1000 : null;
+  const video = getVideoElement();
+  const duration =
+    video && Number.isFinite(video.duration) && video.duration > 0
+      ? video.duration
+      : null;
 
   // Titolo: usiamo <title> come fallback
   const title = document.title?.trim() || null;
@@ -47,10 +52,10 @@ window.addEventListener("message", (ev) => {
     player.seek(timeSec * 1000);
   }
 
-  // Controllo playbackRate unificato
+  // Controllo playbackRate unificato sul <video>
   if (data.type === "SET_RATE") {
     try {
-      const v = document.querySelector("video") as HTMLVideoElement | null;
+      const v = getVideoElement();
       if (v) v.playbackRate = Number(data.rate) || 1.0;
     } catch {
       // ignore
@@ -59,7 +64,7 @@ window.addEventListener("message", (ev) => {
 
   if (data.type === "CLEAR_RATE") {
     try {
-      const v = document.querySelector("video") as HTMLVideoElement | null;
+      const v = getVideoElement();
       if (v) v.playbackRate = 1.0;
     } catch {
       // ignore
@@ -83,18 +88,20 @@ window.addEventListener("message", (ev) => {
 //   - stimare la posizione locale corrente
 //   - rilevare azioni manuali (play/pause/seek) dell’utente locale
 setInterval(() => {
-  const player = getPlayer();
-  if (!player) return;
+  const video = getVideoElement();
+  if (!video) return;
 
-  const tMs = typeof player.getCurrentTime === "function" ? Number(player.getCurrentTime()) : NaN;
-  const timeSec = Number.isFinite(tMs) ? tMs / 1000 : 0;
+  const timeSec =
+    Number.isFinite(video.currentTime) && video.currentTime >= 0
+      ? video.currentTime
+      : 0;
 
   window.postMessage(
     {
       source: "movie-time-bridge",
       type: "TICK",
       time: timeSec,
-      paused: player.isPaused(),
+      paused: video.paused,
     },
     "*"
   );

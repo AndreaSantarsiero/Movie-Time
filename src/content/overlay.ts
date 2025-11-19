@@ -196,7 +196,7 @@ export function createOverlay() {
   };
 
   // Aggiorna badge stato sync in base alla UiState del protocollo
-  onSyncUiUpdate((state) => {
+    onSyncUiUpdate((state) => {
     syncOn = state.enabled;
 
     btnSync.classList.toggle("off", !state.enabled);
@@ -206,24 +206,25 @@ export function createOverlay() {
       switch (state.phase) {
         case "disabled": return "off";
         case "activating": return "activating";
-        case "synced": return "synced";
+        case "synced": return "";
         case "degraded": return "degraded";
         default: return state.phase;
       }
     })();
 
-    const roleLabel = state.role !== "none" ? ` · ${state.role}` : "";
+    const parts: string[] = [];
 
-    let compatLabel = "";
-    if (state.compatible === "yes") compatLabel = " · match OK";
-    if (state.compatible === "no") compatLabel = " · mismatch";
+    if (phaseLabel) parts.push(phaseLabel);
+    if (state.role !== "none") parts.push(state.role);
 
-    const driftLabel =
-      typeof state.lastDriftSeconds === "number"
-        ? ` · Δ ${state.lastDriftSeconds.toFixed(1)}s`
-        : "";
+    if (state.compatible === "yes") parts.push("match OK");
+    if (state.compatible === "no") parts.push("mismatch");
 
-    txtStatus.textContent = `Sync: ${phaseLabel}${roleLabel}${compatLabel}${driftLabel}`;
+    if (typeof state.lastDriftSeconds === "number") {
+      parts.push(`Δ ${state.lastDriftSeconds.toFixed(1)}s`);
+    }
+
+    txtStatus.textContent = parts.join(" · ");
   });
 
   btnMute.onclick = () => toggleMute(local, btnMute);
