@@ -73,7 +73,7 @@ export interface SyncConfig {
 
 export const defaultSyncConfig: SyncConfig = {
   enabledDurationCheck: true,
-  maxDurationDeltaRatio: 0.01,
+  maxDurationDeltaRatio: 0.5,
 
   autoSyncIntervalMs: 5000,
   leaderHeartbeatTimeoutMs: 17000,
