@@ -105,7 +105,7 @@ answerForPeerEl.addEventListener("input", () => {
 
 
 
-// ---- Gestione callback pulsanti ----
+// ---- Back button ----
 if (backBtn) {
   backBtn.onclick = () => {
     showStep("choice");
@@ -115,6 +115,8 @@ if (backBtn) {
 }
 
 
+
+// ---- NAT test ----
 testBtn.onclick = async () => {
   try {
     statusEl.innerText = "🔎 Testing your network…";
@@ -141,6 +143,7 @@ testBtn.onclick = async () => {
 
 
 
+// ---- Offer / Answer buttons ----
 createBtn.onclick = () => {
   console.log("[Popup] CREATE_SESSION sent");
   createBtn.disabled = true;
@@ -155,9 +158,10 @@ createBtn.onclick = () => {
     }
     console.log("[Popup] CREATE_SESSION resp:", res);
     if (res?.offer) {
-      const value = JSON.stringify(res.offer);
-      offerEl.value = value;
-      chrome.storage.local.set({ mt_offer: value });
+      // Mostra all'utente una versione offuscata (base64 URL-safe)
+      const encoded = encodeOfferForShare(res.offer);
+      offerEl.value = encoded;
+      chrome.storage.local.set({ mt_offer: encoded });
       statusEl.innerText = "✅ Offer created. Copy and share it.";
     } else {
       statusEl.innerText = `❌ Failed to create offer: ${res?.error ?? "NO_RESPONSE"}`;
@@ -167,14 +171,24 @@ createBtn.onclick = () => {
 
 
 connectBtn.onclick = () => {
-  const answer = answerEl.value.trim();
-  if (!answer) return alert("Paste the answer first!");
+  const raw = answerEl.value.trim();
+  if (!raw) return alert("Paste the answer first!");
+
+  // Prova a decodificare l'answer (formato offuscato).
+  // Se fallisce, usa la stringa così com'è (compatibilità con JSON puro).
+  let answerPayload: string = raw;
+  try {
+    const obj = decodeOfferFromShare(raw);
+    answerPayload = JSON.stringify(obj);
+  } catch {
+    // non è nel formato codificato, probabilmente JSON puro
+  }
 
   console.log("[Popup] APPLY_ANSWER sent");
   connectBtn.disabled = true;
   statusEl.innerText = "⏳ Connecting…";
 
-  chrome.runtime.sendMessage({ type: "APPLY_ANSWER", answer }, (res) => {
+  chrome.runtime.sendMessage({ type: "APPLY_ANSWER", answer: answerPayload }, (res) => {
     connectBtn.disabled = false;
 
     if (chrome.runtime.lastError) {
@@ -190,14 +204,24 @@ connectBtn.onclick = () => {
 
 
 genAnswerBtn.onclick = () => {
-  const offer = incomingOfferEl.value.trim();
-  if (!offer) return alert("Paste the offer first!");
+  const raw = incomingOfferEl.value.trim();
+  if (!raw) return alert("Paste the offer first!");
+
+  // Prova a decodificare l'answer (formato offuscato).
+  // Se fallisce, usa la stringa così com'è (compatibilità con JSON puro).
+  let offerPayload: string = raw;
+  try {
+    const obj = decodeOfferFromShare(raw);
+    offerPayload = JSON.stringify(obj);
+  } catch {
+    // non è nel formato codificato, probabilmente JSON puro
+  }
 
   console.log("[Popup] CONNECT_SESSION sent");
   genAnswerBtn.disabled = true;
   statusEl.innerText = "⏳ Generating answer…";
 
-  chrome.runtime.sendMessage({ type: "CONNECT_SESSION", offer }, (res) => {
+  chrome.runtime.sendMessage({ type: "CONNECT_SESSION", offer: offerPayload }, (res) => {
     genAnswerBtn.disabled = false;
 
     if (chrome.runtime.lastError) {
@@ -206,9 +230,10 @@ genAnswerBtn.onclick = () => {
     }
     console.log("[Popup] CONNECT_SESSION resp:", res);
     if (res?.answer) {
-      const value = JSON.stringify(res.answer);
-      answerForPeerEl.value = value;
-      chrome.storage.local.set({ mt_answerForPeer: value });
+      // Mostra all'utente una versione offuscata dell'answer
+      const encoded = encodeOfferForShare(res.answer);
+      answerForPeerEl.value = encoded;
+      chrome.storage.local.set({ mt_answerForPeer: encoded });
       statusEl.innerText = "✅ Answer generated. Send it back.";
     } else {
       statusEl.innerText = `❌ Failed to generate answer: ${res?.error ?? "NO_RESPONSE"}`;
