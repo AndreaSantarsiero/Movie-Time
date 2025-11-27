@@ -108,6 +108,15 @@ button:active {
   border: 1px solid #333;
 }
 
+/* Tip in fondo al popup */
+.mt-tip {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #999;
+  text-align: left;
+}
+
 ::selection {
   background: #e50914;
   color: #fff;
