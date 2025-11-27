@@ -1,4 +1,4 @@
-import { testNatSymmetry, formatNatResult } from "../utils/natTest";
+import { runNatSelfTest, formatNatPopupSummary } from "../utils/natTest";
 
 
 console.log("[Popup] Loaded");
@@ -15,12 +15,22 @@ const answerForPeerEl = document.getElementById("answer-for-peer") as HTMLTextAr
 const statusEl = document.getElementById("status") as HTMLElement;
 
 
+// helper opzionale per classi CSS di stato NAT
+function setNatStatusClass(outcome: "GREEN" | "YELLOW" | "RED" | "ERROR") {
+  if (!statusEl) return;
+  statusEl.classList.remove("nat-green", "nat-yellow", "nat-red", "nat-error");
+  if (outcome === "GREEN") statusEl.classList.add("nat-green");
+  else if (outcome === "YELLOW") statusEl.classList.add("nat-yellow");
+  else if (outcome === "RED") statusEl.classList.add("nat-red");
+  else statusEl.classList.add("nat-error");
+}
 
 (document.getElementById("choose-create") as HTMLButtonElement).onclick = () => {
   document.getElementById("step-choice")!.style.display = "none";
   document.getElementById("step-create")!.style.display = "block";
   statusEl.innerText = "Ready";
 };
+
 (document.getElementById("choose-connect") as HTMLButtonElement).onclick = () => {
   document.getElementById("step-choice")!.style.display = "none";
   document.getElementById("step-join")!.style.display = "block";
@@ -31,11 +41,25 @@ const statusEl = document.getElementById("status") as HTMLElement;
 
 testBtn.onclick = async () => {
   try {
-    (statusEl).innerText = "🔎 Testing NAT via STUN…";
-    const res = await testNatSymmetry();
-    statusEl.innerText = formatNatResult(res);
+    statusEl.innerText = "🔎 Testing your network (NAT + STUN)…";
+    setNatStatusClass("ERROR"); // stato neutro/grigio durante il test
+
+    const result = await runNatSelfTest();
+    const summary = formatNatPopupSummary(result);
+
+    let emoji = "⚪";
+    if (result.outcome === "GREEN") emoji = "🟢";
+    else if (result.outcome === "YELLOW") emoji = "🟡";
+    else if (result.outcome === "RED") emoji = "🔴";
+
+    // Aggiorna testo e classe
+    statusEl.innerText = `${emoji} ${summary.label}\n${summary.description}`;
+    setNatStatusClass(result.outcome);
+    console.log("[Popup] NAT self-test result:", result);
   } catch (e: any) {
+    console.error("[Popup] NAT self-test failed", e);
     statusEl.innerText = `❌ NAT test failed: ${e?.message ?? String(e)}`;
+    setNatStatusClass("ERROR");
   }
 };
 
@@ -69,7 +93,9 @@ connectBtn.onclick = () => {
       return;
     }
     console.log("[Popup] APPLY_ANSWER resp:", res);
-    statusEl.innerText = res?.ok ? "✅ Connected!" : `❌ Failed to apply answer: ${res?.error ?? "NO_RESPONSE"}`;
+    statusEl.innerText = res?.ok
+      ? "✅ Connected!"
+      : `❌ Failed to apply answer: ${res?.error ?? "NO_RESPONSE"}`;
   });
 };
 
@@ -111,7 +137,7 @@ function decodeOfferFromShare(b64url: string): any {
   // reintegra padding
   while (b64.length % 4) b64 += "=";
   const bin = atob(b64);
-  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   const json = new TextDecoder().decode(bytes);
   return JSON.parse(json);
 }
