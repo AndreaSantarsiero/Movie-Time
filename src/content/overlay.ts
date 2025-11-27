@@ -1,4 +1,4 @@
-import { setLocalStream, onRemoteStream } from "./webrtc";
+import { setLocalStream, onRemoteStream, getSingletonRTC } from "./webrtc";
 import { setSyncEnabled, onSyncUiUpdate } from "./videoSync";
 
 
@@ -232,15 +232,59 @@ export function createOverlay() {
   btnMute.onclick = () => toggleMute(local, btnMute);
   btnCam.onclick = () => { void toggleCam(local, btnCam); };
 
-  btnClose.onclick = () => {
-    // Spegni davvero tutte le tracce prima di chiudere l'overlay
-    const stream = local.srcObject as MediaStream | null;
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
-      local.srcObject = null;
-      setLocalStream(stream);
+  btnClose.onclick = async () => {
+    try {
+      // disabilita la sync
+      await setSyncEnabled(false);
+    } catch {
+      // ignore
     }
-    remote.srcObject = null;
+
+    // Spegni davvero tutte le tracce locali prima di chiudere l'overlay
+    const localStream = local.srcObject as MediaStream | null;
+    if (localStream) {
+      localStream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {
+          // ignore
+        }
+      });
+      local.srcObject = null;
+    }
+
+    // Spegni anche eventuali tracce remote
+    const remoteStream = remote.srcObject as MediaStream | null;
+    if (remoteStream) {
+      remoteStream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {
+          // ignore
+        }
+      });
+      remote.srcObject = null;
+    }
+
+    // Chiudi la RTCPeerConnection se esiste
+    try {
+      const rtc = getSingletonRTC();
+      if (rtc && rtc.pc) {
+        // stoppa eventuali track associate ai sender
+        rtc.pc.getSenders().forEach((s) => {
+          try {
+            s.track?.stop();
+          } catch {
+            // ignore
+          }
+        });
+        rtc.pc.close();
+      }
+    } catch (err) {
+      console.warn("[Overlay] Failed to close RTCPeerConnection:", err);
+    }
+
+    // Rimuovi l'overlay dal DOM: chiamata finita, UI sparisce
     container.remove();
   };
 }

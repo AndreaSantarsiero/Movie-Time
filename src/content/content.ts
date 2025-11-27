@@ -125,6 +125,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
  * —— Overlay relocation per il fullscreen ——
  * Mantiene l'overlay visibile anche quando il player entra in fullscreen,
  * spostandolo dentro document.fullscreenElement e rimettendolo nel parent di default all'uscita.
+ *
+ * Se però l'overlay viene rimosso dal DOM (es. tasto ❌ nell'overlay),
+ * NON viene più ricreato: consideriamo la chiamata chiusa definitivamente.
  */
 function setupOverlayRelocation() {
   if (__relocationSetupDone) return;
@@ -162,15 +165,16 @@ function setupOverlayRelocation() {
   }
 
   function relocateOverlayForFullscreen() {
+    // Se l'overlay è stato rimosso, NON lo resuscitiamo
+    if (!overlayEl.isConnected) {
+      return;
+    }
+
     const fsEl = document.fullscreenElement as HTMLElement | null;
-    if (fsEl) {
-      if (overlayEl.parentElement !== fsEl) {
-        fsEl.appendChild(overlayEl);
-      }
-    } else {
-      if (overlayEl.parentElement !== defaultParent) {
-        defaultParent.appendChild(overlayEl);
-      }
+    const shouldBeParent = fsEl || defaultParent;
+
+    if (overlayEl.parentElement !== shouldBeParent) {
+      shouldBeParent.appendChild(overlayEl);
     }
   }
 
@@ -178,9 +182,17 @@ function setupOverlayRelocation() {
   relocateOverlayForFullscreen();
 
   const overlayObserver = new MutationObserver(() => {
-    const shouldBeParent =
-      (document.fullscreenElement as HTMLElement | null) || defaultParent;
-    if (!overlayEl.isConnected || overlayEl.parentElement !== shouldBeParent) {
+    // Se l'overlay non è più connesso al DOM, assumiamo che sia stato chiuso
+    // intenzionalmente: smettiamo di osservare e NON lo ricreiamo.
+    if (!overlayEl.isConnected) {
+      overlayObserver.disconnect();
+      return;
+    }
+
+    const fsEl = document.fullscreenElement as HTMLElement | null;
+    const shouldBeParent = fsEl || defaultParent;
+
+    if (overlayEl.parentElement !== shouldBeParent) {
       shouldBeParent.appendChild(overlayEl);
     }
   });
