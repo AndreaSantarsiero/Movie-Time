@@ -14,6 +14,15 @@ const incomingOfferEl = document.getElementById("incoming-offer") as HTMLTextAre
 const answerForPeerEl = document.getElementById("answer-for-peer") as HTMLTextAreaElement;
 const statusEl = document.getElementById("status") as HTMLElement;
 
+const stepChoiceEl = document.getElementById("step-choice") as HTMLElement;
+const stepCreateEl = document.getElementById("step-create") as HTMLElement;
+const stepJoinEl = document.getElementById("step-join") as HTMLElement;
+
+const backBtn = document.getElementById("btn-back") as HTMLButtonElement | null;
+
+type ActiveStep = "choice" | "create" | "join";
+
+
 
 // helper opzionale per classi CSS di stato NAT
 function setNatStatusClass(outcome: "GREEN" | "YELLOW" | "RED" | "ERROR") {
@@ -25,23 +34,90 @@ function setNatStatusClass(outcome: "GREEN" | "YELLOW" | "RED" | "ERROR") {
   else statusEl.classList.add("nat-error");
 }
 
+
+function showStep(step: ActiveStep) {
+  stepChoiceEl.style.display = step === "choice" ? "block" : "none";
+  stepCreateEl.style.display = step === "create" ? "block" : "none";
+  stepJoinEl.style.display = step === "join" ? "block" : "none";
+
+  // mostra/nasconde il bottone "Back"
+  if (backBtn) {
+    backBtn.style.display = step === "choice" ? "none" : "inline-block";
+  }
+
+  // Persist step selection
+  chrome.storage.local.set({ mt_activeStep: step });
+}
+
+
+
+// ---- Ripristino stato dal storage all'avvio del popup ----
+chrome.storage.local.get(
+  {
+    mt_offer: "",
+    mt_answer: "",
+    mt_incomingOffer: "",
+    mt_answerForPeer: "",
+    mt_activeStep: "choice" as ActiveStep,
+  },
+  (data) => {
+    offerEl.value = data.mt_offer;
+    answerEl.value = data.mt_answer;
+    incomingOfferEl.value = data.mt_incomingOffer;
+    answerForPeerEl.value = data.mt_answerForPeer;
+
+    showStep(data.mt_activeStep || "choice");
+    statusEl.innerText = "Ready";
+  }
+);
+
+
+
+// ---- Salva contenuto dei textarea su input ----
+offerEl.addEventListener("input", () => {
+  chrome.storage.local.set({ mt_offer: offerEl.value });
+});
+
+answerEl.addEventListener("input", () => {
+  chrome.storage.local.set({ mt_answer: answerEl.value });
+});
+
+incomingOfferEl.addEventListener("input", () => {
+  chrome.storage.local.set({ mt_incomingOffer: incomingOfferEl.value });
+});
+
+answerForPeerEl.addEventListener("input", () => {
+  chrome.storage.local.set({ mt_answerForPeer: answerForPeerEl.value });
+});
+
+
+
+// ---- Selettori step ----
 (document.getElementById("choose-create") as HTMLButtonElement).onclick = () => {
-  document.getElementById("step-choice")!.style.display = "none";
-  document.getElementById("step-create")!.style.display = "block";
+  showStep("create");
   statusEl.innerText = "Ready";
 };
 
 (document.getElementById("choose-connect") as HTMLButtonElement).onclick = () => {
-  document.getElementById("step-choice")!.style.display = "none";
-  document.getElementById("step-join")!.style.display = "block";
+  showStep("join");
   statusEl.innerText = "Ready";
 };
 
 
 
+// ---- Gestione callback pulsanti ----
+if (backBtn) {
+  backBtn.onclick = () => {
+    showStep("choice");
+    statusEl.innerText = "Ready";
+    // non svuotiamo i campi: se l'utente torna per sbaglio, non perde ciò che ha scritto
+  };
+}
+
+
 testBtn.onclick = async () => {
   try {
-    statusEl.innerText = "🔎 Testing your network (NAT + STUN)…";
+    statusEl.innerText = "🔎 Testing your network…";
     setNatStatusClass("ERROR"); // stato neutro/grigio durante il test
 
     const result = await runNatSelfTest();
@@ -67,14 +143,21 @@ testBtn.onclick = async () => {
 
 createBtn.onclick = () => {
   console.log("[Popup] CREATE_SESSION sent");
+  createBtn.disabled = true;
+  statusEl.innerText = "⏳ Generating offer…";
+
   chrome.runtime.sendMessage({ type: "CREATE_SESSION" }, (res) => {
+    createBtn.disabled = false;
+
     if (chrome.runtime.lastError) {
       statusEl.innerText = `❌ Failed to create offer: ${chrome.runtime.lastError.message}`;
       return;
     }
     console.log("[Popup] CREATE_SESSION resp:", res);
     if (res?.offer) {
-      offerEl.value = JSON.stringify(res.offer);
+      const value = JSON.stringify(res.offer);
+      offerEl.value = value;
+      chrome.storage.local.set({ mt_offer: value });
       statusEl.innerText = "✅ Offer created. Copy and share it.";
     } else {
       statusEl.innerText = `❌ Failed to create offer: ${res?.error ?? "NO_RESPONSE"}`;
@@ -86,8 +169,14 @@ createBtn.onclick = () => {
 connectBtn.onclick = () => {
   const answer = answerEl.value.trim();
   if (!answer) return alert("Paste the answer first!");
+
   console.log("[Popup] APPLY_ANSWER sent");
+  connectBtn.disabled = true;
+  statusEl.innerText = "⏳ Connecting…";
+
   chrome.runtime.sendMessage({ type: "APPLY_ANSWER", answer }, (res) => {
+    connectBtn.disabled = false;
+
     if (chrome.runtime.lastError) {
       statusEl.innerText = `❌ Failed to apply answer: ${chrome.runtime.lastError.message}`;
       return;
@@ -103,15 +192,23 @@ connectBtn.onclick = () => {
 genAnswerBtn.onclick = () => {
   const offer = incomingOfferEl.value.trim();
   if (!offer) return alert("Paste the offer first!");
+
   console.log("[Popup] CONNECT_SESSION sent");
+  genAnswerBtn.disabled = true;
+  statusEl.innerText = "⏳ Generating answer…";
+
   chrome.runtime.sendMessage({ type: "CONNECT_SESSION", offer }, (res) => {
+    genAnswerBtn.disabled = false;
+
     if (chrome.runtime.lastError) {
       statusEl.innerText = `❌ Failed to generate answer: ${chrome.runtime.lastError.message}`;
       return;
     }
     console.log("[Popup] CONNECT_SESSION resp:", res);
     if (res?.answer) {
-      answerForPeerEl.value = JSON.stringify(res.answer);
+      const value = JSON.stringify(res.answer);
+      answerForPeerEl.value = value;
+      chrome.storage.local.set({ mt_answerForPeer: value });
       statusEl.innerText = "✅ Answer generated. Send it back.";
     } else {
       statusEl.innerText = `❌ Failed to generate answer: ${res?.error ?? "NO_RESPONSE"}`;
@@ -121,6 +218,7 @@ genAnswerBtn.onclick = () => {
 
 
 
+// ---- Utility encoding/decoding ----
 function encodeOfferForShare(obj: any): string {
   const json = JSON.stringify(obj);
   const bytes = new TextEncoder().encode(json);

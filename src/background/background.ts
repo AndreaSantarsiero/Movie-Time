@@ -81,3 +81,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 });
+
+
+
+// --- Reset stato popup quando la pagina viene ricaricata ---
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // status: "loading" viene emesso all'inizio di un reload / navigazione
+  if (changeInfo.status === "loading") {
+    const url = tab.url || "";
+
+    // opzionale: limita ai domini Netflix
+    if (url.includes("netflix.com")) {
+      console.log("[BG] Page reload on Netflix tab, clearing popup state");
+      chrome.storage.local.remove([
+        "mt_offer",
+        "mt_answer",
+        "mt_incomingOffer",
+        "mt_answerForPeer",
+        "mt_activeStep",
+      ]);
+    }
+  }
+});
