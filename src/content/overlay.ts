@@ -154,7 +154,7 @@ export function createOverlay() {
 
 
 
-  
+
   document.body.appendChild(container);
 
   // Drag semplice del contenitore
@@ -180,10 +180,12 @@ export function createOverlay() {
   const btnCam = shadow.getElementById("cam") as HTMLButtonElement;
   const btnClose = shadow.getElementById("close") as HTMLButtonElement;
 
-  // Avvia videochat
-  initVideoChat(local, remote);
+  // Avvia videochat (prima acquisizione A/V)
+  initVideoChat(local, remote, btnMute, btnCam).catch((err) => {
+    console.error("[Overlay] Failed to init video chat:", err);
+  });
 
-  // Toggle Sync (usa setSyncEnabled(enabled: boolean))
+  // Toggle Sync
   let syncOn = false;
 
   btnSync.onclick = async () => {
@@ -196,7 +198,7 @@ export function createOverlay() {
   };
 
   // Aggiorna badge stato sync in base alla UiState del protocollo
-    onSyncUiUpdate((state) => {
+  onSyncUiUpdate((state) => {
     syncOn = state.enabled;
 
     btnSync.classList.toggle("off", !state.enabled);
@@ -228,17 +230,45 @@ export function createOverlay() {
   });
 
   btnMute.onclick = () => toggleMute(local, btnMute);
-  btnCam.onclick = () => toggleCam(local, btnCam);
-  btnClose.onclick = () => container.remove();
+  btnCam.onclick = () => { void toggleCam(local, btnCam); };
+
+  btnClose.onclick = () => {
+    // Spegni davvero tutte le tracce prima di chiudere l'overlay
+    const stream = local.srcObject as MediaStream | null;
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      local.srcObject = null;
+      setLocalStream(stream);
+    }
+    remote.srcObject = null;
+    container.remove();
+  };
 }
 
 
 
-async function initVideoChat(local: HTMLVideoElement, remote: HTMLVideoElement) {
+async function initVideoChat(
+  local: HTMLVideoElement,
+  remote: HTMLVideoElement,
+  btnMute?: HTMLButtonElement,
+  btnCam?: HTMLButtonElement
+) {
+  // Prima acquisizione A/V (video+audio)
   const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   local.srcObject = stream;
 
+  // Comunica al layer WebRTC lo stream iniziale
   setLocalStream(stream);
+
+  // Stato iniziale dei bottoni (mic e cam ON)
+  if (btnMute) {
+    btnMute.classList.toggle("off", false);
+    btnMute.setAttribute("aria-pressed", "false");
+  }
+  if (btnCam) {
+    btnCam.classList.toggle("off", false);
+    btnCam.setAttribute("aria-pressed", "false");
+  }
 
   onRemoteStream((s) => {
     remote.srcObject = s;
@@ -276,13 +306,20 @@ async function initVideoChat(local: HTMLVideoElement, remote: HTMLVideoElement) 
 
 
 function toggleMute(local: HTMLVideoElement, btn?: HTMLButtonElement) {
-  const stream = local.srcObject as MediaStream;
+  const stream = local.srcObject as MediaStream | null;
   if (!stream) return;
 
-  stream.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
+  const audioTracks = stream.getAudioTracks();
+  if (audioTracks.length === 0) return;
+
+  // Toggle "enabled" sulle tracce audio (non le stoppiamo per evitare pop e ri-permission)
+  const currentlyOn = audioTracks.some((t) => t.enabled);
+  audioTracks.forEach((t) => {
+    t.enabled = !currentlyOn;
+  });
 
   if (btn) {
-    const micOn = stream.getAudioTracks().some((t) => t.enabled);
+    const micOn = audioTracks.some((t) => t.enabled);
     btn.classList.toggle("off", !micOn);
     btn.setAttribute("aria-pressed", String(!micOn));
   }
@@ -290,15 +327,59 @@ function toggleMute(local: HTMLVideoElement, btn?: HTMLButtonElement) {
 
 
 
-function toggleCam(local: HTMLVideoElement, btn?: HTMLButtonElement) {
-  const stream = local.srcObject as MediaStream;
+async function toggleCam(local: HTMLVideoElement, btn?: HTMLButtonElement) {
+  const stream = local.srcObject as MediaStream | null;
   if (!stream) return;
 
-  stream.getVideoTracks().forEach((t) => (t.enabled = !t.enabled));
+  const videoTracks = stream.getVideoTracks();
+  const hasLiveVideo = videoTracks.some((t) => t.readyState === "live");
 
-  if (btn) {
-    const camOn = stream.getVideoTracks().some((t) => t.enabled);
-    btn.classList.toggle("off", !camOn);
-    btn.setAttribute("aria-pressed", String(!camOn));
+  if (hasLiveVideo) {
+    // CASE: camera currently ON → spegnila davvero (stop + remove)
+    videoTracks.forEach((t) => {
+      try {
+        t.stop(); // spegne realmente la webcam → LED off
+      } catch {
+        // ignore
+      }
+      stream.removeTrack(t);
+    });
+
+    // Aggiorna local preview (stream ora senza tracce video)
+    local.srcObject = stream;
+    setLocalStream(stream);
+
+    if (btn) {
+      btn.classList.add("off");
+      btn.setAttribute("aria-pressed", "true");
+    }
+    return;
+  }
+
+  // CASE: camera currently OFF → prova a riaccenderla
+  try {
+    // Solo video, l'audio rimane quello esistente (se presente)
+    const newVideoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    const newVideoTracks = newVideoStream.getVideoTracks();
+
+    newVideoTracks.forEach((t) => {
+      stream.addTrack(t);
+    });
+
+    // Aggiorna preview locale e RTCPeerConnection con lo stream aggiornato
+    local.srcObject = stream;
+    setLocalStream(stream);
+
+    if (btn) {
+      btn.classList.remove("off");
+      btn.setAttribute("aria-pressed", "false");
+    }
+  } catch (err) {
+    console.error("[Overlay] Failed to re-enable camera:", err);
+    if (btn) {
+      // Se fallisce, tieni il bottone nello stato "off"
+      btn.classList.add("off");
+      btn.setAttribute("aria-pressed", "true");
+    }
   }
 }
