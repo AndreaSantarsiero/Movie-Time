@@ -2,11 +2,9 @@
 // - Espone metodi per signaling (createOffer/applyRemote).
 // - Espone setLocalStream/onRemoteStream per A/V.
 // - Espone canale dati "sync" + helper sendSync/onSyncMessage.
-// - Espone onRTCConnected per notificare quando la connessione è stabilita.
 //
 
 type SyncHandler = (msg: any) => void;
-type RTCConnectedHandler = () => void;
 
 let __rtcSingleton: RTCLink | null = null;
 
@@ -17,43 +15,11 @@ const _waiters: Array<(ok: boolean) => void> = [];
 
 const __syncHandlers: SyncHandler[] = [];
 
-const __rtcConnectedHandlers: RTCConnectedHandler[] = [];
-let __rtcHasConnected = false;
 
 
 // --- API per il canale di sync ---
 export function onSyncMessage(fn: SyncHandler) {
   if (typeof fn === "function") __syncHandlers.push(fn);
-}
-
-
-/** Callback eseguite quando il link WebRTC è "connected" */
-export function onRTCConnected(fn: RTCConnectedHandler) {
-  if (typeof fn !== "function") return;
-  __rtcConnectedHandlers.push(fn);
-  // se la connessione è già stata segnalata, chiamiamo subito la callback
-  if (__rtcHasConnected) {
-    try {
-      fn();
-    } catch (err) {
-      console.error("[RTC] onRTCConnected handler error (late)", err);
-    }
-  }
-}
-
-
-function notifyRTCConnectedOnce() {
-  if (__rtcHasConnected) return;
-  __rtcHasConnected = true;
-
-  console.log("[RTC] Connection considered established → notifying handlers");
-  for (const fn of __rtcConnectedHandlers) {
-    try {
-      fn();
-    } catch (err) {
-      console.error("[RTC] onRTCConnected handler error", err);
-    }
-  }
 }
 
 
@@ -153,20 +119,14 @@ export class RTCLink {
 
     // Media: in uscita
     if (_localStream) {
-      _localStream.getTracks().forEach((t) =>
-        this.pc.addTrack(t, _localStream as MediaStream)
-      );
+      _localStream
+        .getTracks()
+        .forEach((t) => this.pc.addTrack(t, _localStream as MediaStream));
     }
 
-    // ICE logging e notifica connessione
+    // ICE logging (facoltativo)
     this.pc.oniceconnectionstatechange = () => {
       console.log("[RTC] ICE state:", this.pc.iceConnectionState);
-      if (
-        this.pc.iceConnectionState === "connected" ||
-        this.pc.iceConnectionState === "completed"
-      ) {
-        notifyRTCConnectedOnce();
-      }
     };
 
     // DataChannel lato callee
@@ -182,11 +142,7 @@ export class RTCLink {
 
   private attachDc(dc: RTCDataChannel) {
     this.dc = dc;
-    this.dc.onopen = () => {
-      console.log("[RTC] DataChannel 'sync' open");
-      // quando il DC è open, la connessione è in pratica operativa
-      notifyRTCConnectedOnce();
-    };
+    this.dc.onopen = () => console.log("[RTC] DataChannel 'sync' open");
     this.dc.onclose = () => console.log("[RTC] DataChannel 'sync' close");
     this.dc.onerror = (e) => console.error("[RTC] DataChannel error", e);
     this.dc.onmessage = (e) => {
