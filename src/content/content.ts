@@ -1,8 +1,10 @@
-import { RTCLink, getSingletonRTC, waitForLocalStream } from "./webrtc";
+import { RTCLink, getSingletonRTC, waitForLocalStream, onRTCConnected } from "./webrtc";
 import { setupVideoSync } from "./videoSync";
-import { createOverlay } from "./overlay";
+import { createOverlay, startOverlayVideoChat } from "./overlay";
 
 let __relocationSetupDone = false;
+let __overlayHiddenInitially = false;
+
 console.log("[Content] Loaded start");
 
 
@@ -78,6 +80,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 
 /**
+ * Mostra l'overlay (se esiste ancora) – chiamato quando la connessione è pronta
+ */
+function showOverlayIfPresent() {
+  try {
+    const overlayEl = document.getElementById("movie-time-overlay");
+    if (!overlayEl) {
+      console.warn("[Content] showOverlayIfPresent: overlay element not found");
+      return;
+    }
+    if (!overlayEl.isConnected) {
+      // l'utente potrebbe averlo rimosso (tasto ❌), in quel caso rispettiamo la scelta
+      console.log("[Content] showOverlayIfPresent: overlay not connected to DOM, skipping");
+      return;
+    }
+
+    // rimuovi l'hide iniziale
+    overlayEl.style.display = "";
+    console.log("[Content] Overlay made visible after RTC connection");
+  } catch (e) {
+    console.error("[Content] Failed to show overlay:", e);
+  }
+}
+
+
+
+/**
  * 3) Init sicuro del resto (bridge/overlay/videosync)
  *    — anche se qualcosa fallisse qui, la parte di signaling è già attiva.
  */
@@ -97,10 +125,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       console.error("[Content] Failed to inject overlayBridge:", e);
     }
 
-    // Overlay UI
+    // Overlay UI (creato subito, ma tenuto nascosto finché non c'è una connessione RTC)
     try {
       createOverlay();
       setupOverlayRelocation();
+
+      const overlayEl = document.getElementById("movie-time-overlay");
+      if (overlayEl) {
+        overlayEl.style.display = "none";
+        __overlayHiddenInitially = true;
+        console.log("[Content] Overlay created but initially hidden");
+      } else {
+        console.warn("[Content] Overlay element not found right after createOverlay");
+      }
     } catch (e) {
       console.error("[Content] Overlay failed:", e);
     }
@@ -112,6 +149,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     } catch (e) {
       console.error("[Content] VideoSync failed:", e);
     }
+
+    // Quando la connessione RTC viene considerata "stabilita", mostriamo l'overlay
+    // e passiamo dai media finti ai media reali (se disponibili).
+    onRTCConnected(() => {
+      console.log("[Content] onRTCConnected → show overlay + start real video chat");
+      if (__overlayHiddenInitially) {
+        showOverlayIfPresent();
+        __overlayHiddenInitially = false;
+      } else {
+        // in caso fosse già visibile per qualche motivo, assicuriamoci comunque
+        showOverlayIfPresent();
+      }
+
+      // Avvia la richiesta di webcam/microfono reali + replaceTrack
+      startOverlayVideoChat().catch((err) => {
+        console.error("[Content] Failed to start overlay video chat:", err);
+      });
+    });
 
     console.log("[Content] Setup done");
   } catch (err) {

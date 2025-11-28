@@ -2,9 +2,11 @@
 // - Espone metodi per signaling (createOffer/applyRemote).
 // - Espone setLocalStream/onRemoteStream per A/V.
 // - Espone canale dati "sync" + helper sendSync/onSyncMessage.
+// - Espone onRTCConnected per notificare quando la connessione è stabilita.
 //
 
 type SyncHandler = (msg: any) => void;
+type RTCConnectedHandler = () => void;
 
 let __rtcSingleton: RTCLink | null = null;
 
@@ -15,6 +17,9 @@ const _waiters: Array<(ok: boolean) => void> = [];
 
 const __syncHandlers: SyncHandler[] = [];
 
+// Handlers chiamati quando consideriamo il link "connected"
+const __rtcConnectedHandlers: RTCConnectedHandler[] = [];
+let __rtcHasConnected = false;
 
 
 // --- API per il canale di sync ---
@@ -23,25 +28,57 @@ export function onSyncMessage(fn: SyncHandler) {
 }
 
 
-/** Chiamato dall’overlay quando la webcam è pronta */
+/** Callback eseguite quando il link WebRTC è "connected" (ICE connected/completed o DC aperto) */
+export function onRTCConnected(fn: RTCConnectedHandler) {
+  if (typeof fn !== "function") return;
+  __rtcConnectedHandlers.push(fn);
+
+  // Se la connessione è già stata segnalata, chiamiamo subito la callback
+  if (__rtcHasConnected) {
+    try {
+      fn();
+    } catch (err) {
+      console.error("[RTC] onRTCConnected handler error (late)", err);
+    }
+  }
+}
+
+
+function notifyRTCConnectedOnce() {
+  if (__rtcHasConnected) return;
+  __rtcHasConnected = true;
+
+  console.log("[RTC] Connection considered established → notifying handlers");
+  for (const fn of __rtcConnectedHandlers) {
+    try {
+      fn();
+    } catch (err) {
+      console.error("[RTC] onRTCConnected handler error", err);
+    }
+  }
+}
+
+
+/** Chiamato dall’overlay quando lo stream locale (fake o reale) è pronto */
 export function setLocalStream(stream: MediaStream) {
   _localStream = stream;
-  // sveglia eventuali attese
+  // sveglia eventuali attese (es. waitForLocalStream in content.ts)
   _waiters.splice(0).forEach((cb) => cb(true));
+
   // se la PC esiste già, attacca subito le tracce
   if (__rtcSingleton && _localStream) {
     _localStream.getTracks().forEach((t) => {
       try {
         __rtcSingleton!.pc.addTrack(t, _localStream as MediaStream);
       } catch {
-        // ignore
+        // ignore (es. doppia addTrack sulla stessa track)
       }
     });
   }
 }
 
 
-/** Attende la disponibilità della webcam */
+/** Attende la disponibilità dello stream locale (fake o reale) */
 export function waitForLocalStream(timeoutMs = 10000): Promise<boolean> {
   if (_localStream) return Promise.resolve(true);
   return new Promise((resolve) => {
@@ -124,9 +161,15 @@ export class RTCLink {
         .forEach((t) => this.pc.addTrack(t, _localStream as MediaStream));
     }
 
-    // ICE logging (facoltativo)
+    // ICE logging + notifica connessione
     this.pc.oniceconnectionstatechange = () => {
       console.log("[RTC] ICE state:", this.pc.iceConnectionState);
+      if (
+        this.pc.iceConnectionState === "connected" ||
+        this.pc.iceConnectionState === "completed"
+      ) {
+        notifyRTCConnectedOnce();
+      }
     };
 
     // DataChannel lato callee
@@ -142,7 +185,11 @@ export class RTCLink {
 
   private attachDc(dc: RTCDataChannel) {
     this.dc = dc;
-    this.dc.onopen = () => console.log("[RTC] DataChannel 'sync' open");
+    this.dc.onopen = () => {
+      console.log("[RTC] DataChannel 'sync' open");
+      // Quando il DC è open, la connessione è operativa: notifichiamo eventuali listener
+      notifyRTCConnectedOnce();
+    };
     this.dc.onclose = () => console.log("[RTC] DataChannel 'sync' close");
     this.dc.onerror = (e) => console.error("[RTC] DataChannel error", e);
     this.dc.onmessage = (e) => {
@@ -174,7 +221,7 @@ export class RTCLink {
       this.attachDc(dc);
     }
 
-    // Assicura tracce locali presenti (se disponibili al momento)
+    // Assicura tracce locali presenti (fake o reali, se disponibili al momento)
     if (_localStream) {
       _localStream.getTracks().forEach((t) => {
         try {
