@@ -69,7 +69,6 @@ function createFakeAVStream(width = 640, height = 360): MediaStream {
   const audioCtx = new AudioContext();
   const dest = audioCtx.createMediaStreamDestination();
 
-  // Sorgente silenziosa: un Oscillator via Gain a 0
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   gain.gain.value = 0; // muto
@@ -89,6 +88,24 @@ function createFakeAVStream(width = 640, height = 360): MediaStream {
   __fakeAudioSourceNode = osc;
 
   return combined;
+}
+
+
+
+/**
+ * Ricostruisce uno stream di preview per il video locale:
+ * - videoTrack: può essere fake o real
+ * - audio: usa la traccia audio reale se presente, altrimenti quella fake
+ */
+function updateLocalPreview(local: HTMLVideoElement, videoTrack: MediaStreamTrack | null) {
+  const preview = new MediaStream();
+  if (videoTrack) preview.addTrack(videoTrack);
+  if (__realAudioTrack) {
+    preview.addTrack(__realAudioTrack);
+  } else if (__fakeAudioTrack) {
+    preview.addTrack(__fakeAudioTrack);
+  }
+  local.srcObject = preview;
 }
 
 
@@ -243,7 +260,7 @@ export function createOverlay() {
   });
 
 
-  
+
   document.body.appendChild(container);
 
   // Drag semplice del contenitore
@@ -272,11 +289,12 @@ export function createOverlay() {
 
   // --- Media fake iniziali per la negoziazione ---
   const fakeStream = createFakeAVStream();
-  local.srcObject = fakeStream;
-  // Notifica al layer WebRTC il nostro flusso locale (fake)
+  // Preview locale: video fake + (eventuale) audio fake
+  updateLocalPreview(local, __fakeVideoTrack || null);
+  // Notifica al layer WebRTC il nostro flusso locale (fake) → unico punto in cui facciamo addTrack
   setLocalStream(fakeStream);
 
-  // Stato iniziale bottoni: consideriamo cam/mic "off" dal punto di vista umano
+  // Stato iniziale bottoni: cam/mic "off" dal punto di vista utente
   if (btnMute) {
     btnMute.classList.add("off");
     btnMute.setAttribute("aria-pressed", "true");
@@ -345,11 +363,7 @@ export function createOverlay() {
   });
 
   btnMute.onclick = () => toggleMute(local, btnMute);
-  btnCam.onclick = () => {
-    // Per ora il toggleCam agisce sullo stream attuale (fake o real),
-    // la logica di passare ai media REALI la facciamo in startOverlayVideoChat().
-    void toggleCam(local, btnCam);
-  };
+  btnCam.onclick = () => { void toggleCam(local, btnCam); };
 
   btnClose.onclick = async () => {
     try {
@@ -507,8 +521,8 @@ export async function startOverlayVideoChat() {
       }
     }
 
-    // Preview locale con media reali
-    local.srcObject = real;
+    // Preview locale con media reali (video reale + audio reale)
+    updateLocalPreview(local, __realVideoTrack || null);
 
     if (btnMute) {
       btnMute.classList.remove("off");
@@ -522,9 +536,7 @@ export async function startOverlayVideoChat() {
     console.log("[Overlay] Real video chat started (tracks replaced)");
   } catch (err) {
     console.error("[Overlay] Failed to acquire real media, staying on fake tracks:", err);
-    // Non facciamo throw: manteniamo i fake media e non blocchiamo niente.
-    // Lasciamo i pulsanti in stato "off".
-    __videoChatStarted = false; // opzionale: permette un eventuale retry in futuro
+    __videoChatStarted = false; // permette un eventuale retry
   }
 }
 
@@ -573,25 +585,93 @@ function toggleMute(local: HTMLVideoElement, btn?: HTMLButtonElement) {
 
 
 /**
- * Per ora il toggleCam agisce semplicemente sull'abilitazione delle tracce video
- * del local.srcObject (che può essere fake o real). La logica "fake → real" è
- * gestita centralmente in startOverlayVideoChat.
+ * Toggle webcam usando solo replaceTrack + stop/start
+ * - ON → OFF: replaceTrack(real → fake) + stop traccia reale (LED off)
+ * - OFF → ON: nuovo getUserMedia(video) + replaceTrack(fake → real) (LED on)
  */
 async function toggleCam(local: HTMLVideoElement, btn?: HTMLButtonElement) {
-  const stream = local.srcObject as MediaStream | null;
-  if (!stream) return;
+  const { video } = ensureSenders();
+  if (!video) {
+    console.warn("[Overlay] toggleCam: no video sender yet");
+  }
 
-  const videoTracks = stream.getVideoTracks();
-  if (videoTracks.length === 0) return;
+  const cameraIsOn = !!__realVideoTrack;
 
-  const currentlyOn = videoTracks.some((t) => t.enabled);
-  videoTracks.forEach((t) => {
-    t.enabled = !currentlyOn;
-  });
+  // CAM ON → OFF
+  if (cameraIsOn) {
+    if (video && __fakeVideoTrack) {
+      try {
+        await video.replaceTrack(__fakeVideoTrack);
+      } catch (err) {
+        console.error("[Overlay] replaceTrack to fake failed:", err);
+      }
+    }
 
-  if (btn) {
-    const camOn = videoTracks.some((t) => t.enabled);
-    btn.classList.toggle("off", !camOn);
-    btn.setAttribute("aria-pressed", String(!camOn));
+    if (__realVideoTrack) {
+      try {
+        __realVideoTrack.stop(); // spegne realmente la webcam → LED off
+      } catch {
+        // ignore
+      }
+      __realVideoTrack = null;
+    }
+
+    // Preview: torna al video fake (più eventuale audio reale)
+    updateLocalPreview(local, __fakeVideoTrack || null);
+
+    if (btn) {
+      btn.classList.add("off");
+      btn.setAttribute("aria-pressed", "true");
+    }
+    return;
+  }
+
+  // CAM OFF → ON
+  try {
+    const newVideoStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false,
+    });
+    const newVideoTrack = newVideoStream.getVideoTracks()[0] || null;
+
+    if (!newVideoTrack) {
+      console.warn("[Overlay] toggleCam: no video track from getUserMedia");
+      newVideoStream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {
+          // ignore
+        }
+      });
+      if (btn) {
+        btn.classList.add("off");
+        btn.setAttribute("aria-pressed", "true");
+      }
+      return;
+    }
+
+    __realVideoTrack = newVideoTrack;
+
+    if (video) {
+      try {
+        await video.replaceTrack(newVideoTrack);
+      } catch (err) {
+        console.error("[Overlay] replaceTrack to real failed:", err);
+      }
+    }
+
+    // Preview: video reale + (eventuale) audio reale
+    updateLocalPreview(local, newVideoTrack);
+
+    if (btn) {
+      btn.classList.remove("off");
+      btn.setAttribute("aria-pressed", "false");
+    }
+  } catch (err) {
+    console.error("[Overlay] Failed to re-enable camera:", err);
+    if (btn) {
+      btn.classList.add("off");
+      btn.setAttribute("aria-pressed", "true");
+    }
   }
 }
