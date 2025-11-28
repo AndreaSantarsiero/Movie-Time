@@ -1,9 +1,14 @@
 {
   "manifest_version": 4,
   "name": "Movie Time",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Watch Netflix with peer-to-peer sync and videochat",
-  "permissions": ["storage", "scripting", "activeTab"],
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "clipboardRead"
+  ],
   "host_permissions": ["*://*.netflix.com/*"],
 
   "background": {

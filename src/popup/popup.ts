@@ -20,6 +20,11 @@ const stepJoinEl = document.getElementById("step-join") as HTMLElement;
 
 const backBtn = document.getElementById("btn-back") as HTMLButtonElement | null;
 
+const copyOfferBtn = document.getElementById("btn-copy-offer") as HTMLButtonElement | null;
+const pasteAnswerBtn = document.getElementById("btn-paste-answer") as HTMLButtonElement | null;
+const pasteIncomingOfferBtn = document.getElementById("btn-paste-incoming-offer") as HTMLButtonElement | null;
+const copyAnswerForPeerBtn = document.getElementById("btn-copy-answer-for-peer") as HTMLButtonElement | null;
+
 type ActiveStep = "choice" | "create" | "join";
 
 
@@ -263,4 +268,82 @@ function decodeOfferFromShare(b64url: string): any {
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   const json = new TextDecoder().decode(bytes);
   return JSON.parse(json);
+}
+
+
+
+// ---- Clipboard helpers + wiring mini buttons ----
+async function copyToClipboard(text: string) {
+  if (!navigator.clipboard) {
+    console.warn("[Popup] Clipboard API not available");
+    statusEl.innerText = "❌ Clipboard API not available in this context.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    statusEl.innerText = "✅ Copied to clipboard.";
+  } catch (err) {
+    console.error("[Popup] Failed to copy to clipboard", err);
+    statusEl.innerText = "❌ Failed to copy to clipboard.";
+  }
+}
+
+async function pasteFromClipboard(): Promise<string | null> {
+  if (!navigator.clipboard) {
+    console.warn("[Popup] Clipboard API not available");
+    statusEl.innerText = "❌ Clipboard API not available in this context.";
+    return null;
+  }
+  try {
+    const text = await navigator.clipboard.readText();
+    return text;
+  } catch (err) {
+    console.error("[Popup] Failed to read from clipboard", err);
+    statusEl.innerText = "❌ Failed to read from clipboard.";
+    return null;
+  }
+}
+
+// Step "Create" – copy Offer, paste Answer
+if (copyOfferBtn) {
+  copyOfferBtn.onclick = () => {
+    const value = offerEl.value.trim();
+    if (!value) {
+      statusEl.innerText = "Nothing to copy yet.";
+      return;
+    }
+    copyToClipboard(value);
+  };
+}
+
+if (pasteAnswerBtn) {
+  pasteAnswerBtn.onclick = async () => {
+    const text = await pasteFromClipboard();
+    if (text == null) return;
+    answerEl.value = text;
+    chrome.storage.local.set({ mt_answer: text });
+    statusEl.innerText = "📥 Answer pasted from clipboard.";
+  };
+}
+
+// Step "Join" – paste incoming Offer, copy Answer for peer
+if (pasteIncomingOfferBtn) {
+  pasteIncomingOfferBtn.onclick = async () => {
+    const text = await pasteFromClipboard();
+    if (text == null) return;
+    incomingOfferEl.value = text;
+    chrome.storage.local.set({ mt_incomingOffer: text });
+    statusEl.innerText = "📥 Offer pasted from clipboard.";
+  };
+}
+
+if (copyAnswerForPeerBtn) {
+  copyAnswerForPeerBtn.onclick = () => {
+    const value = answerForPeerEl.value.trim();
+    if (!value) {
+      statusEl.innerText = "Nothing to copy yet.";
+      return;
+    }
+    copyToClipboard(value);
+  };
 }

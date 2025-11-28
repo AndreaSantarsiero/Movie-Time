@@ -27,16 +27,41 @@
     <!-- Step 1a: creare sessione -->
     <div id="step-create" style="display:none">
       <button id="btn-create">Generate Offer</button>
+
       <textarea id="offer" placeholder="Copy this key and send it"></textarea>
+      <div class="mt-field-tools">
+        <button id="btn-copy-offer" class="mt-mini-button" type="button">
+          Copy
+        </button>
+      </div>
+
       <textarea id="answer" placeholder="Paste the answer here"></textarea>
+      <div class="mt-field-tools">
+        <button id="btn-paste-answer" class="mt-mini-button" type="button">
+          Paste
+        </button>
+      </div>
+
       <button id="btn-connect">Connect</button>
     </div>
 
     <!-- Step 1b: connettersi a sessione esistente -->
     <div id="step-join" style="display:none">
       <textarea id="incoming-offer" placeholder="Paste the offer here"></textarea>
+      <div class="mt-field-tools">
+        <button id="btn-paste-incoming-offer" class="mt-mini-button" type="button">
+          Paste
+        </button>
+      </div>
+
       <button id="btn-generate-answer">Generate Answer</button>
+
       <textarea id="answer-for-peer" placeholder="Send this answer back"></textarea>
+      <div class="mt-field-tools">
+        <button id="btn-copy-answer-for-peer" class="mt-mini-button" type="button">
+          Copy
+        </button>
+      </div>
     </div>
 
     <div id="status">Ready</div>

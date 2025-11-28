@@ -1,10 +1,14 @@
+/* Applica border-box ovunque */
+* {
+  box-sizing: border-box;
+}
+
 body {
   font-family: "Arial", sans-serif;
   background-color: #141414;
   color: #ffffff;
   padding: 12px;
   width: 320px;
-  box-sizing: border-box;
 }
 
 /* Header con titolo + back button */
@@ -95,6 +99,38 @@ button:active {
 
 .mt-back-button:active {
   transform: translateY(-50%);
+}
+
+/* Contenitore per i mini pulsanti sotto i textarea */
+.mt-field-tools {
+  margin-top: -2px;   /* avvicina il bottone al textarea */
+  margin-bottom: 4px;
+  text-align: right;  /* pulsante allineato a destra */
+}
+
+/* Mini pulsanti Copy/Paste: stile simile al back button */
+.mt-mini-button {
+  width: auto;
+  padding: 4px 8px;
+  margin-top: 0;
+  background-color: transparent;
+  color: #ccc;
+  border-radius: 4px;
+  border: 1px solid #333;
+  font-weight: normal;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+/* Override dell'hover globale: niente zoom per i mini */
+.mt-mini-button:hover {
+  background-color: #1f1f1f;
+  transform: none;
+}
+
+.mt-mini-button:active {
+  transform: none;
 }
 
 #status {
