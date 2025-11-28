@@ -3,6 +3,8 @@ import { setSyncEnabled, onSyncUiUpdate } from "./videoSync";
 
 
 
+let __videoChatStarted = false;
+
 export function createOverlay() {
 
   if (document.getElementById("movie-time-overlay")) return;
@@ -172,18 +174,13 @@ export function createOverlay() {
   });
   window.addEventListener("mouseup", () => (isDragging = false));
 
-  const btnSync  = shadow.getElementById("sync") as HTMLButtonElement;
+  const btnSync = shadow.getElementById("sync") as HTMLButtonElement;
   const txtStatus = shadow.getElementById("sync-status") as HTMLSpanElement;
   const local = shadow.getElementById("local") as HTMLVideoElement;
   const remote = shadow.getElementById("remote") as HTMLVideoElement;
   const btnMute = shadow.getElementById("mute") as HTMLButtonElement;
   const btnCam = shadow.getElementById("cam") as HTMLButtonElement;
   const btnClose = shadow.getElementById("close") as HTMLButtonElement;
-
-  // Avvia videochat (prima acquisizione A/V)
-  initVideoChat(local, remote, btnMute, btnCam).catch((err) => {
-    console.error("[Overlay] Failed to init video chat:", err);
-  });
 
   // Toggle Sync
   let syncOn = false;
@@ -287,6 +284,50 @@ export function createOverlay() {
     // Rimuovi l'overlay dal DOM: chiamata finita, UI sparisce
     container.remove();
   };
+}
+
+
+
+/**
+ * Da chiamare *dopo* che l'overlay è stato mostrato all'utente
+ * (es. in content.ts dentro onRTCConnected → showOverlayIfPresent()).
+ * Qui parte davvero la richiesta a camera/mic.
+ */
+export async function startOverlayVideoChat() {
+  if (__videoChatStarted) return;
+  __videoChatStarted = true;
+
+  const container = document.getElementById("movie-time-overlay");
+  if (!container) {
+    console.warn("[Overlay] startOverlayVideoChat: overlay not found");
+    __videoChatStarted = false;
+    return;
+  }
+  const shadow = container.shadowRoot;
+  if (!shadow) {
+    console.warn("[Overlay] startOverlayVideoChat: shadowRoot not found");
+    __videoChatStarted = false;
+    return;
+  }
+
+  const local = shadow.getElementById("local") as HTMLVideoElement | null;
+  const remote = shadow.getElementById("remote") as HTMLVideoElement | null;
+  const btnMute = shadow.getElementById("mute") as HTMLButtonElement | null;
+  const btnCam = shadow.getElementById("cam") as HTMLButtonElement | null;
+
+  if (!local || !remote) {
+    console.warn("[Overlay] startOverlayVideoChat: video elements missing");
+    __videoChatStarted = false;
+    return;
+  }
+
+  try {
+    await initVideoChat(local, remote, btnMute ?? undefined, btnCam ?? undefined);
+    console.log("[Overlay] Video chat initialized after overlay shown");
+  } catch (err) {
+    console.error("[Overlay] Failed to init video chat:", err);
+    __videoChatStarted = false; // permettiamo un eventuale retry
+  }
 }
 
 
