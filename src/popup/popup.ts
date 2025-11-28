@@ -322,7 +322,7 @@ if (pasteAnswerBtn) {
     if (text == null) return;
     answerEl.value = text;
     chrome.storage.local.set({ mt_answer: text });
-    statusEl.innerText = "📥 Answer pasted from clipboard.";
+    statusEl.innerText = "✅ Answer pasted from clipboard.";
   };
 }
 
@@ -333,7 +333,7 @@ if (pasteIncomingOfferBtn) {
     if (text == null) return;
     incomingOfferEl.value = text;
     chrome.storage.local.set({ mt_incomingOffer: text });
-    statusEl.innerText = "📥 Offer pasted from clipboard.";
+    statusEl.innerText = "✅ Offer pasted from clipboard.";
   };
 }
 
