@@ -13,6 +13,7 @@ Movie Time is a Chrome Extension that allows two users to watch Netflix together
 - 🧩 Simple UX – use the popup to connect, then control everything from an in-page overlay
 - 📺 Floating Overlay Window – resizable, draggable video chat on top of the Netflix player
 - ⚙️ Sync Protocol with duration check, deterministic leader/follower and heartbeat
+- 🧪 NAT Self-Test – built-in network diagnostic to detect restrictive NATs before starting a session
 - 🆓 Free – relies only on public STUN servers from Google
 
 ---------------------------------------------------------------------
@@ -24,73 +25,103 @@ Movie Time is a Chrome Extension that allows two users to watch Netflix together
 When you and your friend/partner both open Netflix in Chrome:
 
 1. Each browser creates a `RTCPeerConnection`.
-2. One user opens the extension popup and creates an **Offer** (local SDP).
-3. That Offer is copied and sent to the other user through any external channel (chat, email, etc.).
-4. The second user pastes the Offer into their popup, generates an **Answer**, and sends it back.
-5. The first user pastes the Answer into their popup.
+2. One user opens the extension popup and chooses whether to:
+   - **Test Connection** (runs a local NAT diagnostic),  
+   - **Create a Session** (generate an Offer), or  
+   - **Connect to a Session** (paste a remote Offer to create an Answer).
+3. The Offer is copied and sent to the other user through any external channel (chat, email, etc.).
+4. The second user pastes the Offer into their popup, generates an Answer, and sends it back.
+5. The first user pastes the Answer into their popup to complete the signaling.
 
 Once Offer and Answer are exchanged on both sides, the peer connections complete ICE gathering using Google STUN servers. After that, all media streams and sync messages flow directly between the two browsers over encrypted WebRTC.
 
-The popup’s job ends here: it is only responsible for WebRTC signaling (Offer/Answer exchange). Everything else (video chat UI, sync controls, status) is handled inside the Netflix tab by the in-page overlay.
+The popup’s job **ends here**: it is only responsible for signaling. Video chat, synchronization, and UI all live inside the Netflix tab.
 
 ---------------------------------------------------------------------
 
-### 2. Media Synchronization
+### 2. NAT Self-Test (Popup)
+
+The popup includes a **NAT Test** button.  
+This feature performs a STUN-based local diagnostic to estimate how P2P-friendly your network is:
+
+- 🟢 **Green**: high chance of successful WebRTC P2P  
+- 🟡 **Yellow**: may work, depends on network conditions  
+- 🔴 **Red**: very unlikely to succeed (VPNs, corporate networks, CGNAT)  
+
+The test never contacts the other peer and does not send any data outside your browser.
+
+---------------------------------------------------------------------
+
+### 3. Media Synchronization
 
 After the P2P connection is established, both peers inject a content script into their active Netflix tab. This script:
 
-- injects a small “bridge” script into the page that talks to the **Netflix player** and to the underlying HTML `<video>` element;
-- reads playback state (current time, paused/playing, duration) from the video element;
-- sends periodic “ticks” from the page context to the content script;
-- receives commands like Play, Pause, Seek from the sync logic and forwards them to the Netflix player.
+- injects a small “bridge” into the Netflix page that talks directly to the **Netflix player** and the underlying `<video>` tag;
+- reads playback state (current time, paused/playing, duration);
+- sends periodic “ticks” from the page to the content script;
+- receives commands like Play, Pause, Seek from the sync logic and forwards them to Netflix.
 
-When synchronization mode is enabled, the two browsers maintain a shared playback state through a dedicated WebRTC **data channel**. Only playback time and state are synchronized; language, audio track and subtitles remain independent for each user.
-
----------------------------------------------------------------------
-
-### 3. Video Sync Logic (Leader/Follower Model)
-
-Synchronization is controlled entirely from the overlay inside the Netflix page. Each user has a **Sync** button. The sync protocol is explicitly designed for the case “two users on the same Netflix page watching the same title.”
-
-When a user turns on sync, their client enters an “activating” phase and sends an activation message to the peer. Sync becomes fully active only when both sides have:
-
-- enabled sync,
-- exchanged each other’s activation message.
-
-At that point, each side independently checks if the media are compatible. The two durations are compared using a relative difference; if that difference exceeds a configurable ratio (for example 1%), the content is considered incompatible and sync is not established. If durations are compatible, the protocol begins to sinchronize the two players.
-
-Sync deactivation is fully symmetric. When a user disables sync in the overlay, their client sends a deactivation message to the peer, stops generating sync messages, and stops reacting to incoming sync messages. The peer, upon receiving deactivation, leaves the synced state and returns to normal, independent playback, without altering the current position any more than necessary. If either user later re-enables sync, the protocol runs a full setup again and eventually begins to sinchronize the two players.
+When synchronization is enabled, the two peers maintain a shared playback state through a dedicated WebRTC data channel. Only playback time/state is synchronized; audio/subtitles remain local.
 
 ---------------------------------------------------------------------
 
-### 4. Video Chat Overlay
+### 4. Video Sync Logic (Leader/Follower Model)
 
-When the WebRTC connection is established and the page has access to the camera and microphone, Movie Time injects a compact floating overlay on top of the Netflix player. This overlay contains two video elements: a larger one for the **remote** stream and a smaller preview for the **local** webcam, usually shown in a corner.
+Synchronization is controlled entirely through the overlay inside the Netflix page:
 
-The overlay includes a control bar that appears when the user moves the mouse over the window or focuses it via keyboard. The bar provides:
+- each user has a **Sync** toggle button;
+- when enabled, the client sends an activation message to the peer;
+- sync becomes active only when **both** users enable sync.
 
-- a **Sync** toggle button that enables or disables playback synchronization for that user;
-- a short **status label** showing a compact view of the sync state (phase, role, compatibility, drift);
-- a **microphone button** to mute or unmute the local audio tracks;
-- a **camera button** to enable or disable the local video tracks;
-- a **close button** to remove the overlay from the page.
+When both sides are activating:
 
-The microphone and camera buttons directly toggle the enabled state of the corresponding local media tracks. When a track type is disabled, the button is visually marked as “off” so that it is obvious whether you are currently sending audio or video. The close button removes the overlay UI from the current page; the underlying WebRTC connection itself remains established until the tab is closed or reloaded.
+1. Each side exchanges activation metadata.
+2. Durations are compared for compatibility.
+3. A deterministic **leader** and **follower** are elected.
+4. A full state is sent from the leader to the follower.
 
-The overlay window is fully draggable and resizable, you can drag it by clicking and holding on any non-interactive area. A relocation mechanism monitors fullscreen changes and ensures that the overlay stays visible even when Netflix enters fullscreen.
+Sync deactivation is symmetric:
+
+- if one user disables sync, both sides exit the synced state,
+- UI reflects that sync is off for both,
+- either user may re-enable sync at any time to start a new session.
 
 ---------------------------------------------------------------------
 
-### 5. Popup Interface
+### 5. Video Chat Overlay
 
-The popup (popup.html) is intentionally minimal and focused on signaling only. It is used to:
+When the WebRTC connection is ready, Movie Time injects a floating overlay on top of the Netflix player. It includes:
 
-- start or join a P2P session by generating an Offer,
-- paste a remote Offer to generate an Answer,
-- paste a remote Answer to complete the WebRTC negotiation,
-- display basic error messages related to signaling.
+- **remote video** (large),
+- **local preview** (small corner video),
+- a control bar with:
+  - Sync toggle + compact sync status label (phase, role, drift, compatibility),
+  - Microphone toggle,
+  - Camera toggle,
+  - Close button.
 
-The popup doesn't control video chat or playback synchronization. Once the connection is established and the overlay is visible in the Netflix tab, you can safely close the popup and ignore it for the rest of the session.
+The microphone/camera buttons toggle the local audio/video track. If the hardware is missing or permissions are denied, the toggle shows an error and remains off.
+
+The overlay:
+
+- is draggable,
+- is resizable,
+- stays visible in fullscreen thanks to automatic relocation.
+
+---------------------------------------------------------------------
+
+### 6. Popup Interface
+
+The popup (popup.html) provides four functions:
+
+- 🧪 **Test Connection** (NAT diagnostic)
+- 🎬 **Create Session** (generate Offer)
+- 🔗 **Connect to Session** (paste Offer → generate Answer)
+- 🔁 **Apply Answer** (caller pastes Answer)
+
+The popup stores intermediate fields so you can close and reopen it without losing text.
+
+Once signaling is complete, the popup is no longer needed.
 
 ---------------------------------------------------------------------
 
@@ -98,83 +129,72 @@ The popup doesn't control video chat or playback synchronization. Once the conne
 
 Technology | Purpose
 -----------|---------
-TypeScript + Vite | Modern development experience and bundling for MV3
-Chrome Extensions API (MV3) | Content scripts, background service worker, popup, permissions
-WebRTC | Real-time peer-to-peer media and data (video, audio, sync messages)
-STUN (Google) | NAT traversal and ICE candidate discovery
-HTML/CSS/JS | Popup UI, overlay UI, and in-page integration
-Netflix Player API (unofficial) + HTML `<video>` | Playback control (play/pause/seek) and accurate timing/duration
+TypeScript + Vite | Modern development & bundling for MV3
+Chrome Extensions API (MV3) | Popup, background SW, content scripts
+WebRTC | Peer-to-peer media + data channel sync
+STUN (Google) | ICE candidate discovery
+HTML/CSS/JS | Overlay UI & popup UI
+Netflix Player API (unofficial) + HTML `<video>` | Playback control
 
 ---------------------------------------------------------------------
 
 ## ⚙️ How to Use
 
 1) **Install the extension locally**
-   - clone this repository, open a terminal in the root folder and type
+   - clone the repo, install dependencies, build:
       ```bash
       npm install
       npm run build
       ```
-   - Open `chrome://extensions/` in Chrome  
-   - Enable “Developer mode”  
-   - Click **Load unpacked** and select the `dist/` folder.
+   - open `chrome://extensions/`
+   - enable Developer Mode
+   - Load unpacked → select the `dist/` folder
 
-2) **Open Netflix and choose a title**
-
-   - Both users should open Netflix in Chrome.
-   - Each user manually navigates to the same movie or episode.
+2) **Open Netflix and choose a title**  
+   Both users must manually navigate to the same movie or episode.
 
 3) **Establish the P2P connection via the popup**
-
-   - User A opens the Movie Time popup and clicks to create an **Offer**.
-   - User A copies the Offer text and sends it to User B (e.g. via chat).
-   - User B pastes the Offer into their popup and generates an **Answer**.
-   - User B sends the Answer back to User A.
-   - User A pastes the Answer into the popup to complete the connection.
+   - User A → Create Offer → copy it  
+   - User B → Paste Offer → Generate Answer  
+   - User A → Paste Answer → connect  
 
 4) **Start the video chat**
-
-   - Once signaling is complete and `getUserMedia` is granted, the overlay appears on top of Netflix.
-   - You should see your own camera in the small preview and your partner’s video in the main area.
-   - If the remote video does not autoplay, click the “start call” button that appears inside the overlay.
+   The overlay appears automatically.  
+   If autoplay is blocked, click “start call”.
 
 5) **Enable playback sync from the overlay**
+   - both users toggle Sync ON,
+   - the protocol runs compatibility checks and leader/follower election,
+   - playback becomes synchronized.
 
-   - Each user can click the **Sync** button in the overlay to enable sync.
-   - When both sides have sync enabled and the durations match, the protocol runs:
-     - duration compatibility check,
-     - deterministic leader/follower election based on activation timestamps,
-     - initial full state from leader to follower for a hard lock-on.
-   - After that, the leader sends periodic heartbeat updates and both sides can generate manual sync events by interacting with the Netflix player.
-   - You can toggle sync off at any time; playback on both sides will continue independently from that point.
+You can disable sync at any moment.  
+Disabling it on either side terminates the sync session for both.
 
 ---------------------------------------------------------------------
 
 ## 🔍 Technical Notes
 
-- The extension uses Google’s public STUN server (`stun:stun.l.google.com:19302`) for ICE candidate gathering.
-- No TURN server is used; in rare cases of very restrictive or symmetric NATs, the peer-to-peer connection might fail.
-- All WebRTC traffic (media and data channel) is encrypted by design using DTLS-SRTP.
-- All messages travel over a WebRTC data channel; there is no central relay.
-- The extension does not send any data to external servers.
+- Uses only Google STUN (`stun:stun.l.google.com:19302`)
+- No TURN server – restrictive NATs may block P2P
+- All WebRTC streams are encrypted (DTLS-SRTP)
+- No personal data ever sent to external servers
+- Sync protocol uses deterministic leader election + heartbeat
 
 ---------------------------------------------------------------------
 
 ## 🧪 Future Improvements
 
-Planned or possible future improvements include:
-
-- Automatic signaling via a lightweight backend or WebSocket service.
-- Group watch for more than two peers sharing the same session.
-- Integrated text chat in the overlay alongside the video chat.
-- Additional sync profiles (for example “strict” vs “relaxed”) tuned for different network conditions and devices.
-- More advanced “soft” correction strategies that gradually compensate small drift instead of relying only on hard seek thresholds.
+- Automatic signaling via backend / WebSocket
+- More than two peers
+- Text chat inside overlay
+- Alternative sync strategies (soft drift correction)
 
 ---------------------------------------------------------------------
 
 ## 🛡️ Privacy & Security
 
-Movie Time does not collect, store, or transmit personal data to any third-party server. All communication happens directly between the two browsers over end-to-end encrypted WebRTC channels. You are always in control of when to start or stop a session, who you share your Offer/Answer with, and when to enable or disable video, audio, and synchronization.
+Movie Time does not collect, store, or transmit personal data.  
+All video, audio, and sync messages stay between you and your partner over encrypted channels.
 
 ---------------------------------------------------------------------
 
