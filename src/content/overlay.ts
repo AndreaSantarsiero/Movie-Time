@@ -55,12 +55,20 @@ export function createOverlay() {
         transform-origin: center;
       }
       #controls {
-        display: flex; justify-content: space-around;
-        padding: 4px; background: rgba(0,0,0,0.4);
-        position: absolute; bottom: 0; width: 100%;
-        opacity: 0; visibility: hidden; transform: translateY(6px);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 6px;
+        background: rgba(0,0,0,0.4);
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(6px);
         pointer-events: none;
         transition: opacity .15s ease, visibility .15s ease, transform .15s ease;
+        gap: 4px;
       }
       :host(:hover) #controls,
       :host(:focus-within) #controls,
@@ -68,10 +76,17 @@ export function createOverlay() {
         opacity: 1; visibility: visible; transform: none;
         pointer-events: auto;
       }
+      #sync-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+      }
       button {
         background: rgba(255,255,255,0.1);
         color: white; border: none; border-radius: 8px;
         padding: 4px 6px; cursor: pointer;
+        flex-shrink: 0;
       }
       button:hover { background: rgba(255,255,255,0.25); }
       button.off { background: rgba(255, 60, 60, 0.35); }
@@ -79,7 +94,6 @@ export function createOverlay() {
       #sync-status {
         font-size: 12px;
         opacity: .85;
-        align-self: center;
         white-space: nowrap;
       }
     </style>
@@ -87,8 +101,10 @@ export function createOverlay() {
       <video id="remote" autoplay playsinline></video>
       <video id="local" autoplay muted playsinline></video>
       <div id="controls">
-        <button id="sync" title="Enable/Disable Sync">🔄</button>
-        <span id="sync-status">Sync: off</span>
+        <div id="sync-group">
+          <button id="sync" title="Enable/Disable Sync">🔄</button>
+          <span id="sync-status">off</span>
+        </div>
         <button id="mute">🎙️</button>
         <button id="cam">🎥</button>
         <button id="close">❌</button>
@@ -96,7 +112,7 @@ export function createOverlay() {
     </div>
   `;
 
-
+  
 
   // Auto-hide controls (mostra su attività/tocco, nascondi dopo idle)
   let hideTimer: number | null = null;
