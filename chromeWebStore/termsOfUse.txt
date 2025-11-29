@@ -1,0 +1,17 @@
+These Terms of Use govern the use of the Movie Time Chrome extension. By installing, accessing or using the extension, you agree to be bound by these Terms. If you do not agree to these Terms, you must not use the extension.
+
+Movie Time is provided solely for personal, lawful and non-commercial use. The extension enables peer-to-peer synchronization of Netflix video playback and optional peer-to-peer video chat between two users who mutually choose to connect. You are responsible for ensuring that your use of the extension complies with applicable laws, the terms of service of Netflix and any other relevant agreements.
+
+The extension establishes a direct peer-to-peer connection between users for the transmission of synchronized playback information and optional audiovisual communication. By using the extension, you acknowledge that any information you choose to share through this connection is transmitted only to the peer with whom you initiate a session. You are solely responsible for selecting trusted partners for your sessions and for the content you choose to share or display. The developer assumes no responsibility for interactions, communications, media exchanges or outcomes arising from peer-to-peer connections established through the extension.
+
+Movie Time does not provide or access Netflix content. All media streamed through Netflix remains subject to Netflix’s own licensing and usage restrictions. The extension does not circumvent any digital rights management, does not alter Netflix’s playback controls, does not provide access to restricted content and does not modify or redistribute copyrighted material. You agree not to use the extension in any manner that infringes intellectual property rights or violates the service terms of Netflix or any other platform.
+
+The extension is provided “as is” and “as available” without warranties of any kind, whether express or implied. The developer makes no guarantees regarding availability, compatibility, performance, reliability or accuracy, and expressly disclaims any liability for disruptions, failures or limitations caused by network conditions, browser restrictions, platform changes, blocking by third-party services, or modifications introduced by Netflix. Use of the extension is at your own risk.
+
+To the maximum extent permitted by applicable law, the developer shall not be liable for any direct, indirect, incidental, consequential or special damages arising out of or related to the use or inability to use the extension, including but not limited to data loss, communication issues, miscommunication between peers, security incidents caused by users sharing data or media, or any form of misuse by third parties.
+
+The user agrees not to reverse engineer, modify, distribute, sublicense or exploit the extension beyond personal use. The user further agrees not to attempt to use the extension for unauthorized communication, automated data extraction, circumvention of restrictions or any unethical, harmful or illegal activities.
+
+These Terms of Use may be updated periodically. Continued use of the extension following publication of updates constitutes acceptance of the revised Terms. If you do not agree to the updated Terms, you must discontinue use of the extension.
+
+For questions or concerns regarding these Terms of Use, please contact the developer at {{insert contact information here}}.

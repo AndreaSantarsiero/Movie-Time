@@ -1,0 +1,11 @@
+Movie Time lets you watch Netflix together with a friend through real-time synchronized playback and built-in video chat — all powered by a fully peer-to-peer WebRTC connection. No accounts, no servers, no data collection.
+
+IMPORTANT: For the best experience, avoid mobile networks such as 4G/5G and restrictive workplace or enterprise Wi-Fi. These networks often block peer-to-peer traffic and may prevent the connection from working. Home Wi-Fi is strongly recommended.
+
+After installing the extension, simply open Netflix, exchange the Offer/Answer codes with your friend through any chat app, and a direct encrypted connection is established between your browsers. A floating overlay appears on the Netflix player letting you see and hear each other, toggle camera and microphone, and enable or disable playback synchronization whenever you want.
+
+The sync engine keeps both players aligned through a lightweight leader/follower protocol that includes compatibility checks, manual action detection, drift correction, and periodic heartbeats. Sync only activates when both users turn it on, and you can switch it off instantly at any time.
+
+All audio, video, and synchronization messages travel directly between the two peers over encrypted WebRTC channels using public Google STUN servers. No TURN servers, relays, or backend services are used.
+
+Movie Time provides a clean, intuitive interface that hides the technical complexity and lets you enjoy watching Netflix together — even from far away.
