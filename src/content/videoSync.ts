@@ -351,6 +351,12 @@ function handleActivateMessage(msg: ActivateMessage) {
 
 function handleDeactivateMessage() {
   log("Received DEACTIVATE from peer");
+
+  // Se il peer disattiva il sync, questo lato deve:
+  // - considerare il toggle locale come OFF (syncEnabled = false),
+  // - resettare lo stato del protocollo,
+  // - notificare la UI in modo che il pulsante venga aggiornato.
+  syncEnabled = false;
   resetSyncState();
   emitUi();
 }
@@ -425,7 +431,7 @@ function enterSyncedState(newRole: SyncRole) {
 function resetSyncState() {
   phase = "disabled";
   role = "none";
-  compatible = syncEnabled ? "unknown" : "unknown";
+  compatible = "unknown";
   localActivation = null;
   remoteActivation = null;
   remotePeerId = null;
