@@ -1,112 +1,14 @@
-import { setLocalStream, onRemoteStream, getSingletonRTC } from "./webrtc";
+import { onRemoteStream, getSingletonRTC } from "./webrtc";
 import { setSyncEnabled, onSyncUiUpdate } from "./videoSync";
-
-
-
-// Stato condiviso per fake / real media + sender
-let __fakeStream: MediaStream | null = null;
-let __fakeVideoTrack: MediaStreamTrack | null = null;
-let __fakeAudioTrack: MediaStreamTrack | null = null;
-
-let __realStream: MediaStream | null = null;
-let __realVideoTrack: MediaStreamTrack | null = null;
-let __realAudioTrack: MediaStreamTrack | null = null;
-
-let __videoSender: RTCRtpSender | null = null;
-let __audioSender: RTCRtpSender | null = null;
-
-let __fakeAudioContext: AudioContext | null = null;
-let __fakeAudioSourceNode: AudioNode | null = null;
-
-let __videoChatStarted = false;
-
-
-
-function ensureSenders(): { video: RTCRtpSender | null; audio: RTCRtpSender | null } {
-  const rtc = getSingletonRTC();
-  if (!rtc || !rtc.pc) return { video: null, audio: null };
-
-  if (!__videoSender || !__audioSender) {
-    const senders = rtc.pc.getSenders();
-    if (!__videoSender) {
-      __videoSender = senders.find((s) => s.track && s.track.kind === "video") || null;
-      if (!__videoSender) {
-        console.warn("[Overlay] No video RTCRtpSender found yet");
-      }
-    }
-    if (!__audioSender) {
-      __audioSender = senders.find((s) => s.track && s.track.kind === "audio") || null;
-      if (!__audioSender) {
-        console.warn("[Overlay] No audio RTCRtpSender found yet");
-      }
-    }
-  }
-
-  return { video: __videoSender, audio: __audioSender };
-}
-
-
-
-/**
- * Crea un MediaStream finto con:
- * - video nero da canvas
- * - audio muto da AudioContext
- */
-function createFakeAVStream(width = 640, height = 360): MediaStream {
-  // Video nero
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, width, height);
-  }
-  const videoStream = canvas.captureStream(5);
-  const videoTrack = videoStream.getVideoTracks()[0] || null;
-
-  // Audio muto
-  const audioCtx = new AudioContext();
-  const dest = audioCtx.createMediaStreamDestination();
-
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  gain.gain.value = 0; // muto
-  osc.connect(gain).connect(dest);
-  osc.start();
-
-  const audioTrack = dest.stream.getAudioTracks()[0] || null;
-
-  const combined = new MediaStream();
-  if (videoTrack) combined.addTrack(videoTrack);
-  if (audioTrack) combined.addTrack(audioTrack);
-
-  __fakeStream = combined;
-  __fakeVideoTrack = videoTrack;
-  __fakeAudioTrack = audioTrack;
-  __fakeAudioContext = audioCtx;
-  __fakeAudioSourceNode = osc;
-
-  return combined;
-}
-
-
-
-/**
- * Ricostruisce uno stream di preview per il video locale:
- * - videoTrack: può essere fake o real
- * - audio: usa la traccia audio reale se presente, altrimenti quella fake
- */
-function updateLocalPreview(local: HTMLVideoElement, videoTrack: MediaStreamTrack | null) {
-  const preview = new MediaStream();
-  if (videoTrack) preview.addTrack(videoTrack);
-  if (__realAudioTrack) {
-    preview.addTrack(__realAudioTrack);
-  } else if (__fakeAudioTrack) {
-    preview.addTrack(__fakeAudioTrack);
-  }
-  local.srcObject = preview;
-}
+import {
+  initFakeLocalMedia,
+  startRealMedia,
+  enableCamera,
+  disableCamera,
+  enableAudio,
+  disableAudio,
+  cleanupUserMedia,
+} from "./userMedia";
 
 
 
@@ -265,6 +167,7 @@ export function createOverlay() {
 
   // Drag semplice del contenitore
   let isDragging = false, offsetX = 0, offsetY = 0;
+
   container.addEventListener("mousedown", (e) => {
     if ((e.target as HTMLElement).tagName === "BUTTON") return;
     isDragging = true;
@@ -288,11 +191,7 @@ export function createOverlay() {
 
 
   // --- Media fake iniziali per la negoziazione ---
-  const fakeStream = createFakeAVStream();
-  // Preview locale: video fake + (eventuale) audio fake
-  updateLocalPreview(local, __fakeVideoTrack || null);
-  // Notifica al layer WebRTC il nostro flusso locale (fake) → unico punto in cui facciamo addTrack
-  setLocalStream(fakeStream);
+  initFakeLocalMedia(local);
 
   // Stato iniziale bottoni: cam/mic "off" dal punto di vista utente
   if (btnMute) {
@@ -308,6 +207,7 @@ export function createOverlay() {
   onRemoteStream((s) => {
     remote.srcObject = s;
     remote.muted = false;
+
     const tryPlay = () =>
       remote.play().catch((err) => {
         console.warn("[Overlay] Autoplay blocked:", err?.name);
@@ -317,6 +217,7 @@ export function createOverlay() {
     if (remote.readyState >= 2) tryPlay();
     else remote.onloadedmetadata = () => tryPlay();
   });
+
 
   // Toggle Sync
   let syncOn = false;
@@ -329,6 +230,7 @@ export function createOverlay() {
       console.error("[Overlay] Failed to toggle sync:", err);
     }
   };
+
 
   // Aggiorna badge stato sync in base alla UiState del protocollo
   onSyncUiUpdate((state) => {
@@ -362,8 +264,68 @@ export function createOverlay() {
     txtStatus.textContent = parts.join(" · ");
   });
 
-  btnMute.onclick = () => toggleMute(local, btnMute);
-  btnCam.onclick = () => { void toggleCam(local, btnCam); };
+
+  // Toggle mic: solo ON/OFF.
+  // Se l'utente prova ad attivare il mic ma non esiste una traccia audio reale,
+  // mostriamo un popup di errore.
+  btnMute.onclick = () => {
+    const isOff = btnMute.classList.contains("off");
+
+    if (isOff) {
+      const ok = enableAudio(local);
+      if (!ok) {
+        alert(
+          "Microfono non disponibile.\n" +
+            "Controlla che il microfono sia collegato e che il browser abbia i permessi audio per questo sito."
+        );
+        // Rimaniamo in stato OFF
+        btnMute.classList.add("off");
+        btnMute.setAttribute("aria-pressed", "true");
+        return;
+      }
+
+      btnMute.classList.remove("off");
+      btnMute.setAttribute("aria-pressed", "false");
+    } else {
+      disableAudio(local);
+      btnMute.classList.add("off");
+      btnMute.setAttribute("aria-pressed", "true");
+    }
+  };
+
+
+  // Toggle cam: solo ON/OFF.
+  // Se getUserMedia fallisce quando l'utente prova ad accendere la cam,
+  // mostriamo un popup di errore.
+  btnCam.onclick = () => {
+    const isOff = btnCam.classList.contains("off");
+
+    if (isOff) {
+      (async () => {
+        const ok = await enableCamera(local);
+        if (!ok) {
+          alert(
+            "Camera non disponibile.\n" +
+              "Controlla che la webcam sia collegata e che il browser abbia i permessi video per questo sito."
+          );
+          // Rimaniamo in stato OFF
+          btnCam.classList.add("off");
+          btnCam.setAttribute("aria-pressed", "true");
+          return;
+        }
+
+        btnCam.classList.remove("off");
+        btnCam.setAttribute("aria-pressed", "false");
+      })();
+    } else {
+      (async () => {
+        await disableCamera(local);
+        btnCam.classList.add("off");
+        btnCam.setAttribute("aria-pressed", "true");
+      })();
+    }
+  };
+
 
   btnClose.onclick = async () => {
     try {
@@ -373,18 +335,8 @@ export function createOverlay() {
       // ignore
     }
 
-    // Spegni davvero tutte le tracce locali prima di chiudere l'overlay
-    const localStream = local.srcObject as MediaStream | null;
-    if (localStream) {
-      localStream.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {
-          // ignore
-        }
-      });
-      local.srcObject = null;
-    }
+    // Spegni davvero tutte le tracce locali gestite da UserMedia
+    cleanupUserMedia();
 
     // Spegni anche eventuali tracce remote
     const remoteStream = remote.srcObject as MediaStream | null;
@@ -403,7 +355,6 @@ export function createOverlay() {
     try {
       const rtc = getSingletonRTC();
       if (rtc && rtc.pc) {
-        // stoppa eventuali track associate ai sender
         rtc.pc.getSenders().forEach((s) => {
           try {
             s.track?.stop();
@@ -417,49 +368,6 @@ export function createOverlay() {
       console.warn("[Overlay] Failed to close RTCPeerConnection:", err);
     }
 
-    // Chiudi risorse fake
-    if (__fakeAudioSourceNode && __fakeAudioContext) {
-      try {
-        (__fakeAudioSourceNode as any).stop?.();
-      } catch {
-        /* ignore */
-      }
-    }
-    if (__fakeAudioContext) {
-      try {
-        __fakeAudioContext.close();
-      } catch {
-        /* ignore */
-      }
-    }
-
-    if (__realVideoTrack) {
-      try {
-        __realVideoTrack.stop();
-      } catch {
-        /* ignore */
-      }
-    }
-    if (__realAudioTrack) {
-      try {
-        __realAudioTrack.stop();
-      } catch {
-        /* ignore */
-      }
-    }
-
-    __fakeStream = null;
-    __fakeVideoTrack = null;
-    __fakeAudioTrack = null;
-    __realStream = null;
-    __realVideoTrack = null;
-    __realAudioTrack = null;
-    __videoSender = null;
-    __audioSender = null;
-    __fakeAudioContext = null;
-    __fakeAudioSourceNode = null;
-    __videoChatStarted = false;
-
     container.remove();
   };
 }
@@ -467,24 +375,22 @@ export function createOverlay() {
 
 
 /**
- * Da chiamare DOPO che la connessione WebRTC è stabilita
- * e l'overlay è stato reso visibile (content.ts / onRTCConnected).
- * Qui chiediamo i media REALI e sostituiamo le tracce finte con replaceTrack.
+ * Chiamata da content.ts quando la connessione WebRTC è stabilita.
+ * Qui chiediamo i media REALI "full" (video+audio) e, in caso di successo,
+ * aggiorniamo lo stato dei pulsanti della UI.
+ *
+ * In caso di fallimento, NON mostriamo popup: l'utente potrà
+ * ritentare manualmente via pulsanti cam/mic e lì vedrà eventuali errori.
  */
 export async function startOverlayVideoChat() {
-  if (__videoChatStarted) return;
-  __videoChatStarted = true;
-
   const container = document.getElementById("movie-time-overlay");
   if (!container) {
     console.warn("[Overlay] startOverlayVideoChat: overlay not found");
-    __videoChatStarted = false;
     return;
   }
   const shadow = container.shadowRoot;
   if (!shadow) {
     console.warn("[Overlay] startOverlayVideoChat: shadowRoot not found");
-    __videoChatStarted = false;
     return;
   }
 
@@ -494,53 +400,34 @@ export async function startOverlayVideoChat() {
 
   if (!local) {
     console.warn("[Overlay] startOverlayVideoChat: local video not found");
-    __videoChatStarted = false;
     return;
   }
 
-  try {
-    const real = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    __realStream = real;
-    __realVideoTrack = real.getVideoTracks()[0] || null;
-    __realAudioTrack = real.getAudioTracks()[0] || null;
+  const { videoOk, audioOk } = await startRealMedia(local);
 
-    const { video, audio } = ensureSenders();
-
-    if (video && __realVideoTrack) {
-      try {
-        await video.replaceTrack(__realVideoTrack);
-      } catch (err) {
-        console.error("[Overlay] replaceTrack (video real) failed:", err);
-      }
-    }
-    if (audio && __realAudioTrack) {
-      try {
-        await audio.replaceTrack(__realAudioTrack);
-      } catch (err) {
-        console.error("[Overlay] replaceTrack (audio real) failed:", err);
-      }
-    }
-
-    // Preview locale con media reali (video reale + audio reale)
-    updateLocalPreview(local, __realVideoTrack || null);
-
-    if (btnMute) {
-      btnMute.classList.remove("off");
-      btnMute.setAttribute("aria-pressed", "false");
-    }
-    if (btnCam) {
+  // Allineiamo stato dei pulsanti:
+  if (btnCam) {
+    if (videoOk) {
       btnCam.classList.remove("off");
       btnCam.setAttribute("aria-pressed", "false");
+    } else {
+      btnCam.classList.add("off");
+      btnCam.setAttribute("aria-pressed", "true");
     }
-
-    console.log("[Overlay] Real video chat started (tracks replaced)");
-  } catch (err) {
-    console.error("[Overlay] Failed to acquire real media, staying on fake tracks:", err);
-    __videoChatStarted = false; // permette un eventuale retry
   }
+
+  if (btnMute) {
+    if (audioOk) {
+      btnMute.classList.remove("off");
+      btnMute.setAttribute("aria-pressed", "false");
+    } else {
+      btnMute.classList.add("off");
+      btnMute.setAttribute("aria-pressed", "true");
+    }
+  }
+
+  console.log("[Overlay] startOverlayVideoChat completed", { videoOk, audioOk });
 }
-
-
 
 function showClickToStart(videoEl: HTMLVideoElement) {
   const btn = document.createElement("button");
@@ -559,119 +446,4 @@ function showClickToStart(videoEl: HTMLVideoElement) {
     btn.remove();
   };
   videoEl.parentElement?.appendChild(btn);
-}
-
-
-
-function toggleMute(local: HTMLVideoElement, btn?: HTMLButtonElement) {
-  const stream = local.srcObject as MediaStream | null;
-  if (!stream) return;
-
-  const audioTracks = stream.getAudioTracks();
-  if (audioTracks.length === 0) return;
-
-  const currentlyOn = audioTracks.some((t) => t.enabled);
-  audioTracks.forEach((t) => {
-    t.enabled = !currentlyOn;
-  });
-
-  if (btn) {
-    const micOn = audioTracks.some((t) => t.enabled);
-    btn.classList.toggle("off", !micOn);
-    btn.setAttribute("aria-pressed", String(!micOn));
-  }
-}
-
-
-
-/**
- * Toggle webcam usando solo replaceTrack + stop/start
- * - ON → OFF: replaceTrack(real → fake) + stop traccia reale (LED off)
- * - OFF → ON: nuovo getUserMedia(video) + replaceTrack(fake → real) (LED on)
- */
-async function toggleCam(local: HTMLVideoElement, btn?: HTMLButtonElement) {
-  const { video } = ensureSenders();
-  if (!video) {
-    console.warn("[Overlay] toggleCam: no video sender yet");
-  }
-
-  const cameraIsOn = !!__realVideoTrack;
-
-  // CAM ON → OFF
-  if (cameraIsOn) {
-    if (video && __fakeVideoTrack) {
-      try {
-        await video.replaceTrack(__fakeVideoTrack);
-      } catch (err) {
-        console.error("[Overlay] replaceTrack to fake failed:", err);
-      }
-    }
-
-    if (__realVideoTrack) {
-      try {
-        __realVideoTrack.stop(); // spegne realmente la webcam → LED off
-      } catch {
-        // ignore
-      }
-      __realVideoTrack = null;
-    }
-
-    // Preview: torna al video fake (più eventuale audio reale)
-    updateLocalPreview(local, __fakeVideoTrack || null);
-
-    if (btn) {
-      btn.classList.add("off");
-      btn.setAttribute("aria-pressed", "true");
-    }
-    return;
-  }
-
-  // CAM OFF → ON
-  try {
-    const newVideoStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: false,
-    });
-    const newVideoTrack = newVideoStream.getVideoTracks()[0] || null;
-
-    if (!newVideoTrack) {
-      console.warn("[Overlay] toggleCam: no video track from getUserMedia");
-      newVideoStream.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {
-          // ignore
-        }
-      });
-      if (btn) {
-        btn.classList.add("off");
-        btn.setAttribute("aria-pressed", "true");
-      }
-      return;
-    }
-
-    __realVideoTrack = newVideoTrack;
-
-    if (video) {
-      try {
-        await video.replaceTrack(newVideoTrack);
-      } catch (err) {
-        console.error("[Overlay] replaceTrack to real failed:", err);
-      }
-    }
-
-    // Preview: video reale + (eventuale) audio reale
-    updateLocalPreview(local, newVideoTrack);
-
-    if (btn) {
-      btn.classList.remove("off");
-      btn.setAttribute("aria-pressed", "false");
-    }
-  } catch (err) {
-    console.error("[Overlay] Failed to re-enable camera:", err);
-    if (btn) {
-      btn.classList.add("off");
-      btn.setAttribute("aria-pressed", "true");
-    }
-  }
 }
