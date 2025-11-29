@@ -1,13 +1,13 @@
 {
   "name": "movie-time",
-  "version": "0.1.0",
-  "description": "Estensione Chrome per sincronizzare video + videochat in peer-to-peer",
+  "version": "1.2.0",
+  "description": "Watch Netflix together with real-time sync and built-in video chat (P2P)",
   "scripts": {
     "build:popup": "vite build --mode popup",
     "build:content": "vite build --mode content",
     "build:background": "vite build --mode background",
     "build:bridge": "vite build --mode bridge",
-    "build": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && cp manifest.json dist/"
+    "build": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && cp manifest.json dist/ && cp -r icons dist/"
   },
   "dependencies": {
     "webrtc-adapter": "^8.0.0"
@@ -19,5 +19,6 @@
     "tslib": "^2.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"
-  }
+  },
+  "private": true
 }
