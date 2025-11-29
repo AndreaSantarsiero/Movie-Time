@@ -147,10 +147,10 @@ Netflix Player API (unofficial) + HTML `<video>` | Playback control
       npm run build
       ```
    - if you want to release a new version:
-   ```bash
+      ```bash
       cd dist
       zip -r ../movie-time-1.2.0.zip .
-   ```
+      ```
    - open `chrome://extensions/`
    - enable Developer Mode
    - Load unpacked → select the `dist/` folder
