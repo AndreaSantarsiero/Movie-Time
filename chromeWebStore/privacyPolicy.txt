@@ -16,4 +16,4 @@ Security is inherently reinforced by the architectural choice to avoid servers e
 
 This Privacy Policy may be updated from time to time. Any modifications will apply prospectively from the date of publication. Users are encouraged to review this policy periodically.
 
-For any questions or concerns regarding this Privacy Policy or the handling of data within Movie Time, please contact the developer at {{insert contact information here}}.
+For any questions or concerns regarding this Privacy Policy or the handling of data within Movie Time, please contact the developer at https://github.com/AndreaSantarsiero/.

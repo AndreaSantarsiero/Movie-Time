@@ -146,4 +146,4 @@ Any updates will be reflected on this page, and the “Last updated” date will
 
 For questions, suggestions, or concerns related to privacy, please contact:
 
-**{{your email or GitHub link}}**
+**[GitHub profile](https://github.com/AndreaSantarsiero/)**

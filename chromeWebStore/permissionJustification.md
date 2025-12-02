@@ -1,3 +1,8 @@
+### `single purpose`
+Movie Time enables two Netflix users to watch the same movie or episode together with perfectly synchronized playback and optional peer-to-peer video chat.
+The extension’s single purpose is to provide real-time playback synchronization and in-page video chat between two users while they watch Netflix.
+It does this by establishing an encrypted WebRTC connection between the two browsers, synchronizing play/pause/seek actions, and rendering a floating video-chat overlay inside the Netflix page. No secondary features, no unrelated functionality, and no data collection are included.
+
 ### `storage`
 Used to store temporary session data inside the popup (Offer/Answer text, active step, connection state).  
 This lets users close and reopen the popup without losing progress during the manual signaling process.
