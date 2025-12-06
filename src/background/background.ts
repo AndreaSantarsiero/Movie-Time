@@ -41,6 +41,16 @@ async function getActiveTabId(): Promise<number | null> {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log("[BG] Message received:", msg);
 
+  // --- Reset completo stato estensione (chiusura chiamata remota o locale) ---
+  if (msg?.type === "RESET_STATE") {
+    console.log("[BG] RESET_STATE received → clearing session + popup state");
+    currentSessionTabId = null;
+    chrome.storage.local.remove(POPUP_STATE_KEYS);
+    sendResponse?.({ ok: true });
+    return;
+  }
+
+
   // --- Signaling WebRTC: CREATE_SESSION / CONNECT_SESSION / APPLY_ANSWER ---
   if (["CREATE_SESSION", "CONNECT_SESSION", "APPLY_ANSWER"].includes(msg?.type)) {
     (async () => {

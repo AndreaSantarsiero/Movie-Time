@@ -14,7 +14,7 @@
 */
 
 
-import { sendSync, onSyncMessage } from "./webrtc";
+import { sendSync, onSyncMessage, onCallClosed } from "./webrtc";
 import { syncConfig } from "./syncConfig";
 
 
@@ -278,6 +278,12 @@ function setupSyncChannel() {
     if (!msg) return;
 
     handleSyncMessage(msg);
+  });
+
+  onCallClosed(() => {
+    syncEnabled = false;
+    resetSyncState();
+    emitUi();
   });
 }
 

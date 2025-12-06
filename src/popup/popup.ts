@@ -90,6 +90,31 @@ function handleSignalingError(context: SignalingContext, res: any) {
 
 
 
+// ---- Reset locale quando arriva RESET_STATE (da content/background) ----
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === "RESET_STATE") {
+    console.log("[Popup] RESET_STATE received → clearing local state");
+
+    offerEl.value = "";
+    answerEl.value = "";
+    incomingOfferEl.value = "";
+    answerForPeerEl.value = "";
+    statusEl.innerText = "Ready";
+
+    showStep("choice");
+
+    chrome.storage.local.remove([
+      "mt_offer",
+      "mt_answer",
+      "mt_incomingOffer",
+      "mt_answerForPeer",
+      "mt_activeStep",
+    ]);
+  }
+});
+
+
+
 // ---- Ripristino stato dal storage all'avvio del popup ----
 chrome.storage.local.get(
   {

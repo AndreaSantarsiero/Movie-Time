@@ -1,4 +1,4 @@
-import { onRemoteStream, getSingletonRTC } from "./webrtc";
+import { onRemoteStream, getSingletonRTC, sendCloseCall, onCallClosed } from "./webrtc";
 import { setSyncEnabled, onSyncUiUpdate } from "./videoSync";
 import {
   initFakeLocalMedia,
@@ -343,6 +343,7 @@ export function createOverlay() {
   };
 
 
+  // Toggle close-call (locale)
   btnClose.onclick = async () => {
     try {
       // disabilita la sync
@@ -351,7 +352,12 @@ export function createOverlay() {
       // ignore
     }
 
-    // Spegni davvero tutte le tracce locali gestite da UserMedia
+    // Invio segnale di chiusura all'altro peer
+    try {
+      sendCloseCall();
+    } catch {}
+
+    // Spegni tutte le tracce locali gestite da UserMedia
     cleanupUserMedia();
 
     // Spegni anche eventuali tracce remote
@@ -386,6 +392,36 @@ export function createOverlay() {
 
     container.remove();
   };
+
+
+  // Toggle close-call (remoto)
+  onCallClosed(() => {
+    try {
+      setSyncEnabled(false);
+    } catch {}
+
+    cleanupUserMedia();
+
+    const remoteStream = remote.srcObject as MediaStream | null;
+    if (remoteStream) {
+      remoteStream.getTracks().forEach((t) => {
+        try { t.stop(); } catch {}
+      });
+      remote.srcObject = null;
+    }
+
+    try {
+      const rtc = getSingletonRTC();
+      if (rtc && rtc.pc) {
+        rtc.pc.getSenders().forEach((s) => {
+          try { s.track?.stop(); } catch {}
+        });
+        rtc.pc.close();
+      }
+    } catch {}
+
+    container.remove();
+  });
 }
 
 

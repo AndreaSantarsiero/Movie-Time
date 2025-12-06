@@ -7,6 +7,7 @@
 
 type SyncHandler = (msg: any) => void;
 type RTCConnectedHandler = () => void;
+type CallClosedHandler = () => void;
 
 let __rtcSingleton: RTCLink | null = null;
 
@@ -16,8 +17,8 @@ let _lastRemoteStream: MediaStream | null = null;
 const _waiters: Array<(ok: boolean) => void> = [];
 
 const __syncHandlers: SyncHandler[] = [];
+const __callClosedHandlers: CallClosedHandler[] = [];
 
-// Handlers chiamati quando consideriamo il link "connected"
 const __rtcConnectedHandlers: RTCConnectedHandler[] = [];
 let __rtcHasConnected = false;
 
@@ -25,6 +26,23 @@ let __rtcHasConnected = false;
 // --- API per il canale di sync ---
 export function onSyncMessage(fn: SyncHandler) {
   if (typeof fn === "function") __syncHandlers.push(fn);
+}
+
+
+export function onCallClosed(fn: CallClosedHandler) {
+  if (typeof fn === "function") __callClosedHandlers.push(fn);
+}
+
+
+export function sendCloseCall() {
+  const rtc = __rtcSingleton;
+  if (!rtc || !rtc.dc || rtc.dc.readyState !== "open") return;
+  const obj = { __ch: "sync", type: "CLOSE_CALL" };
+  try {
+    rtc.dc.send(JSON.stringify(obj));
+  } catch (e) {
+    console.warn("[RTC] Failed to send CLOSE_CALL:", e);
+  }
 }
 
 
@@ -203,6 +221,16 @@ export class RTCLink {
           console.log("[RTC] DC message (ignored non-sync):", obj);
           return;
         }
+
+        if (obj.type === "CLOSE_CALL") {
+          __callClosedHandlers.forEach((fn) => {
+            try { fn(); } catch (err) {
+              console.error("[RTC] callClosed handler error", err);
+            }
+          });
+          return;
+        }
+
         __syncHandlers.forEach((fn) => {
           try {
             fn(obj);
@@ -210,6 +238,7 @@ export class RTCLink {
             console.error("[RTC] sync handler error", err);
           }
         });
+
       } catch {
         console.log("[RTC] DC (text) message:", e.data);
       }

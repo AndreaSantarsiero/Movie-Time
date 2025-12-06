@@ -1,4 +1,4 @@
-import { RTCLink, getSingletonRTC, waitForLocalStream, onRTCConnected } from "./webrtc";
+import { RTCLink, getSingletonRTC, waitForLocalStream, onRTCConnected, onCallClosed } from "./webrtc";
 import { setupVideoSync } from "./videoSync";
 import { createOverlay, startOverlayVideoChat } from "./overlay";
 
@@ -57,7 +57,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return;
       }
 
-      // APPLY_ANSWER (lato caller, non serve attendere la webcam qui)
+      // APPLY_ANSWER (lato caller)
       if (msg.type === "APPLY_ANSWER") {
         const rtc = getSingletonRTC() ?? new RTCLink();
         const ansObj = typeof msg.answer === "string" ? JSON.parse(msg.answer) : msg.answer;
@@ -173,6 +173,28 @@ function showOverlayIfPresent() {
     console.error("[Content] Fatal init error:", err);
   }
 })();
+
+
+
+/**
+ * Chiusura chiamata da parte del peer remoto:
+ * rimuovere overlay, ripulire media, resettare tutto.
+ */
+onCallClosed(() => {
+  console.log("[Content] Remote CLOSE_CALL received → closing overlay and resetting state");
+
+  const overlayEl = document.getElementById("movie-time-overlay");
+  if (overlayEl && overlayEl.isConnected) {
+    try {
+      overlayEl.remove();
+    } catch {}
+  }
+
+  // reset integrale dello stato dell'estensione, come su reload tab
+  try {
+    chrome.runtime.sendMessage({ type: "RESET_STATE" });
+  } catch {}
+});
 
 
 
