@@ -149,7 +149,7 @@ Netflix Player API (unofficial) + HTML `<video>` | Playback control
    - if you want to release a new version:
       ```bash
       cd dist
-      zip -r ../movie-time-1.2.1.zip .
+      zip -r ../movie-time-1.3.0.zip .
       ```
    - open `chrome://extensions/`
    - enable Developer Mode
