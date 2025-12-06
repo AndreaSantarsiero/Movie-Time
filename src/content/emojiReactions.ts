@@ -9,6 +9,7 @@ const STYLE_ID = "movie-time-emoji-style";
 // Stato interno
 let _initialized = false;
 let _visible = true;
+let _relocationSetupDone = false;
 
 
 
@@ -234,7 +235,10 @@ function ensureLayer() {
     const layer = document.createElement("div");
     layer.id = LAYER_ID;
     layer.style.display = "block";
-    document.body.appendChild(layer);
+
+    const parent =
+      (document.fullscreenElement as HTMLElement | null) || document.body;
+    parent.appendChild(layer);
   };
 
   if (document.body) {
@@ -253,4 +257,28 @@ function ensureLayer() {
       { once: true }
     );
   }
+
+  setupEmojiRelocation();
+}
+
+
+
+function setupEmojiRelocation() {
+  if (_relocationSetupDone) return;
+  _relocationSetupDone = true;
+
+  const relocate = () => {
+    const layer = document.getElementById(LAYER_ID) as HTMLElement | null;
+    if (!layer) return;
+
+    const fsEl = document.fullscreenElement as HTMLElement | null;
+    const parent = fsEl || document.body;
+
+    if (layer.parentElement !== parent) {
+      parent.appendChild(layer);
+    }
+  };
+
+  document.addEventListener("fullscreenchange", relocate);
+  relocate();
 }
