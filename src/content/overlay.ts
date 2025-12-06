@@ -1,5 +1,6 @@
-import { onRemoteStream, getSingletonRTC, sendCloseCall, onCallClosed } from "./webrtc";
+import { onRemoteStream, getSingletonRTC, sendCloseCall, onCallClosed, onSyncMessage, sendSync } from "./webrtc";
 import { setSyncEnabled, onSyncUiUpdate } from "./videoSync";
+import { initEmojiReactions, showEmojiReaction } from "./emojiReactions";
 import {
   initFakeLocalMedia,
   startRealMedia,
@@ -107,6 +108,7 @@ export function createOverlay() {
         </div>
         <button id="mute">🎙️</button>
         <button id="cam">🎥</button>
+        <button id="emoji">❤️</button>
         <button id="close">❌</button>
       </div>
     </div>
@@ -217,11 +219,15 @@ export function createOverlay() {
   const remote = shadow.getElementById("remote") as HTMLVideoElement;
   const btnMute = shadow.getElementById("mute") as HTMLButtonElement;
   const btnCam = shadow.getElementById("cam") as HTMLButtonElement;
+  const btnEmoji = shadow.getElementById("emoji") as HTMLButtonElement;
   const btnClose = shadow.getElementById("close") as HTMLButtonElement;
 
 
   // --- Media fake iniziali per la negoziazione ---
   initFakeLocalMedia(local);
+
+  // Inizializza layer emoji
+  initEmojiReactions();
 
   // Stato iniziale bottoni: cam/mic "off" dal punto di vista utente
   if (btnMute) {
@@ -355,6 +361,36 @@ export function createOverlay() {
       })();
     }
   };
+
+
+  // Emoji reaction (locale + sync verso il peer)
+  if (btnEmoji) {
+    btnEmoji.onclick = () => {
+      const emoji = "❤️";
+      try {
+        showEmojiReaction(emoji);
+      } catch (e) {
+        console.error("[Overlay] Failed to show local emoji reaction:", e);
+      }
+      try {
+        sendSync({ type: "EMOJI_REACTION", emoji });
+      } catch (e) {
+        console.error("[Overlay] Failed to send emoji reaction over DC:", e);
+      }
+    };
+  }
+
+  // Ricezione emoji dal peer
+  onSyncMessage((msg) => {
+    if (!msg || msg.__ch !== "sync") return;
+    if (msg.type !== "EMOJI_REACTION") return;
+    if (typeof msg.emoji !== "string") return;
+    try {
+      showEmojiReaction(msg.emoji);
+    } catch (e) {
+      console.error("[Overlay] Failed to show remote emoji reaction:", e);
+    }
+  });
 
 
   // Toggle close-call (locale)
