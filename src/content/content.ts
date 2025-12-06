@@ -84,10 +84,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
  */
 function showOverlayIfPresent() {
   try {
-    const overlayEl = document.getElementById("movie-time-overlay");
+    let overlayEl = document.getElementById("movie-time-overlay");
     if (!overlayEl) {
-      console.warn("[Content] showOverlayIfPresent: overlay element not found");
-      return;
+      console.warn("[Content] showOverlayIfPresent: overlay element not found, trying to recreate");
+      try {
+        __relocationSetupDone = false;
+        createOverlay();
+        setupOverlayRelocation();
+      } catch (e) {
+        console.error("[Content] Failed to recreate overlay:", e);
+        return;
+      }
+      overlayEl = document.getElementById("movie-time-overlay");
+      if (!overlayEl) {
+        console.warn("[Content] showOverlayIfPresent: overlay element still not found after recreate");
+        return;
+      }
     }
     if (!overlayEl.isConnected) {
       // l'utente potrebbe averlo rimosso (tasto ❌), in quel caso rispettiamo la scelta

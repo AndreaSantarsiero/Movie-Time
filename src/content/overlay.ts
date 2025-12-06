@@ -179,7 +179,21 @@ export function createOverlay() {
 
 
 
-  document.body.appendChild(container);
+  // Monta l'overlay in modo robusto anche se il body non è ancora pronto
+  if (document.body) {
+    document.body.appendChild(container);
+  } else {
+    console.warn("[Overlay] document.body not ready, delaying overlay attach");
+    window.addEventListener(
+      "DOMContentLoaded",
+      () => {
+        if (!document.getElementById("movie-time-overlay")) {
+          document.body.appendChild(container);
+        }
+      },
+      { once: true }
+    );
+  }
 
   // Drag semplice del contenitore
   let isDragging = false, offsetX = 0, offsetY = 0;
@@ -440,11 +454,23 @@ export function createOverlay() {
  * ritentare manualmente via pulsanti cam/mic e lì vedrà eventuali errori.
  */
 export async function startOverlayVideoChat() {
-  const container = document.getElementById("movie-time-overlay");
-  if (!container) {
-    console.warn("[Overlay] startOverlayVideoChat: overlay not found");
-    return;
+  let containerEl = document.getElementById("movie-time-overlay");
+  if (!containerEl) {
+    console.warn("[Overlay] startOverlayVideoChat: overlay not found, recreating");
+    try {
+      createOverlay();
+    } catch (e) {
+      console.error("[Overlay] Failed to recreate overlay", e);
+      return;
+    }
+    containerEl = document.getElementById("movie-time-overlay");
+    if (!containerEl) {
+      console.warn("[Overlay] startOverlayVideoChat: overlay still not found after recreate");
+      return;
+    }
   }
+
+  const container = containerEl;
   const shadow = container.shadowRoot;
   if (!shadow) {
     console.warn("[Overlay] startOverlayVideoChat: shadowRoot not found");
