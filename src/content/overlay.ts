@@ -391,6 +391,11 @@ export function createOverlay() {
     }
 
     container.remove();
+
+    // Resetta lo stato dell’estensione localmente
+    try {
+      chrome.runtime.sendMessage({ type: "RESET_STATE" });
+    } catch {}
   };
 
 

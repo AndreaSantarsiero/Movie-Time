@@ -190,6 +190,17 @@ onCallClosed(() => {
     } catch {}
   }
 
+  // chiudi PeerConnection e ferma i media
+  try {
+    const rtc = getSingletonRTC();
+    if (rtc && rtc.pc) {
+      rtc.pc.getSenders().forEach((s) => {
+        try { s.track?.stop(); } catch {}
+      });
+      rtc.pc.close();
+    }
+  } catch {}
+
   // reset integrale dello stato dell'estensione, come su reload tab
   try {
     chrome.runtime.sendMessage({ type: "RESET_STATE" });
