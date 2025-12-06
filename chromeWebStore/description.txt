@@ -1,11 +1,36 @@
-Movie Time lets you watch Netflix together with a friend through real-time synchronized playback and built-in video chat — all powered by a fully peer-to-peer WebRTC connection. No accounts, no servers, no data collection.
+⭐ Movie Time – Watch Netflix together, from anywhere  
+Enjoy your favourite movies and shows as if you were sitting next to each other with real-time synchronized playback and built-in video chat.  
+No accounts. No servers. No data collection. Just the two of you, sharing the moment.
 
-IMPORTANT: For the best experience, avoid mobile networks such as 4G/5G and restrictive workplace or enterprise Wi-Fi. These networks often block peer-to-peer traffic and may prevent the connection from working. Home Wi-Fi is strongly recommended.
+⚠️ Important for a smooth experience  
+For the best connection, use a home Wi-Fi network.  
+Mobile networks (4G/5G) and restrictive public/work Wi-Fi often block peer-to-peer traffic and may prevent the call from working correctly.
 
-After installing the extension, simply open Netflix, exchange the Offer/Answer codes with your friend through any chat app, and a direct encrypted connection is established between your browsers. A floating overlay appears on the Netflix player letting you see and hear each other, toggle camera and microphone, and enable or disable playback synchronization whenever you want.
+🎬 How to get started  
+After installing the extension, simply open Netflix and click the Movie Time icon.  
+A small popup will guide you to test your connection, create a session, or join an existing one.
 
-The sync engine keeps both players aligned through a lightweight leader/follower protocol that includes compatibility checks, manual action detection, drift correction, and periodic heartbeats. Sync only activates when both users turn it on, and you can switch it off instantly at any time.
+Creating a session  
+1. Click “Create Session” → “Generate Offer”  
+2. Copy the generated text and send it to the person you want to watch with.
 
-All audio, video, and synchronization messages travel directly between the two peers over encrypted WebRTC channels using public Google STUN servers. No TURN servers, relays, or backend services are used.
+Joining a session  
+1. Click “Join Session”  
+2. Paste the text you received → “Generate Answer”  
+3. Send your answer back to the other person.
 
-Movie Time provides a clean, intuitive interface that hides the technical complexity and lets you enjoy watching Netflix together — even from far away.
+Final step  
+The person who created the session just needs to paste the answer they received and press “Connect”.
+
+🎥 What happens next  
+Once connected, a floating overlay appears on your Netflix tab so you can see and hear each other while watching together.  
+You can drag it around the screen and resize it through the bottom-right corner.  
+You can also toggle your camera, microphone, and playback sync at any time.
+
+🔄 How synchronization works  
+Before enabling sync, both of you should open the same movie or episode on Netflix.  
+Then press the sync button: playback will instantly stay aligned for both of you.  
+Press again at any time to disable synchronization.
+
+❤️ Movie Time  
+Whether you're in a long-distance relationship, watching with a friend across the world, or simply sharing a show with someone you care about — Movie Time makes it feel like you're together.
