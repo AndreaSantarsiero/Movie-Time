@@ -7,7 +7,10 @@
     "build:content": "vite build --mode content",
     "build:background": "vite build --mode background",
     "build:bridge": "vite build --mode bridge",
-    "build": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && cp manifest.json dist/ && cp -r icons dist/"
+
+    "build": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && node scripts/build-targets.cjs",
+    "build:chrome": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && node scripts/build-targets.cjs chrome",
+    "build:firefox": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && node scripts/build-targets.cjs firefox"
   },
   "dependencies": {
     "webrtc-adapter": "^8.0.0"

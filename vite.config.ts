@@ -10,7 +10,7 @@ const __dirname = dirname(__filename);
 function iifeSingleFile(entryAbsPath: string, outFileName: string) {
   return {
     build: {
-      outDir: "dist",
+      outDir: "dist/bundle",
       emptyOutDir: false,      // lasciamo intatti gli output delle build precedenti
       sourcemap: true,
       rollupOptions: {
@@ -28,11 +28,11 @@ function iifeSingleFile(entryAbsPath: string, outFileName: string) {
 
 
 export default ({ mode }: { mode: string }) => {
-  // default: prima build = popup (pulisce dist)
+  // default: prima build = popup (pulisce dist/bundle)
   if (mode === "popup" || !mode) {
     return {
       build: {
-        outDir: "dist",
+        outDir: "dist/bundle",
         emptyOutDir: true,   // la primissima build pulisce
         sourcemap: true,
         rollupOptions: {
@@ -46,7 +46,7 @@ export default ({ mode }: { mode: string }) => {
       },
     };
   }
-  
+
 
   if (mode === "content") {
     // ATTENZIONE: NON elenchiamo overlay.ts come input.
