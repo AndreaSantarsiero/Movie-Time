@@ -2,9 +2,15 @@
 Enjoy your favourite movies and shows as if you were sitting next to each other with real-time synchronized playback and built-in video chat.  
 No accounts. No servers. No data collection. Just the two of you, sharing the moment.
 
+
 ⚠️ Important for a smooth experience  
-For the best connection, use a home Wi-Fi network.  
-Mobile networks (4G/5G) and restrictive public/work Wi-Fi often block peer-to-peer traffic and may prevent the call from working correctly.
+1. For the best connection, use a home Wi-Fi network.  
+   Mobile networks (4G/5G) and restrictive public/work Wi-Fi often block peer-to-peer traffic and may prevent the call from working correctly.
+
+2. Also remember: if you refresh the Netflix page or navigate to a different Netflix URL within the same tab, Movie Time fully resets.  
+   The call ends, the sync stops, and you'll need to recreate or rejoin the session from the beginning.  
+   You can freely switch to other browser tabs, just keep one Netflix tab and don’t refresh it!
+
 
 🎬 How to get started  
 After installing the extension, simply open Netflix and click the Movie Time icon.  
