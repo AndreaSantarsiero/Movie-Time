@@ -1,6 +1,18 @@
 console.log("[BG] Service Worker started");
 
 
+const POPUP_STATE_KEYS = [
+  "mt_offer",
+  "mt_answer",
+  "mt_incomingOffer",
+  "mt_answerForPeer",
+  "mt_activeStep",
+];
+
+// Tab Netflix corrente associata alla sessione di Movie Time
+let currentSessionTabId: number | null = null;
+
+
 
 /** Pinga il content script fino a 10 volte per ~1.5s */
 async function waitForContent(tabId: number): Promise<boolean> {
@@ -33,24 +45,53 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (["CREATE_SESSION", "CONNECT_SESSION", "APPLY_ANSWER"].includes(msg?.type)) {
     (async () => {
       try {
-        const tabId = await getActiveTabId();
-        if (!tabId) {
-          console.warn("[BG] No active tab found");
-          sendResponse({ error: "NO_ACTIVE_TAB" });
-          return;
+        let tabId = currentSessionTabId;
+
+        // Se non abbiamo ancora una tab di sessione, scegliamo una tab Netflix
+        if (tabId == null) {
+          const netflixTabs = await chrome.tabs.query({ url: "*://*.netflix.com/*" });
+
+          if (netflixTabs.length === 0) {
+            console.warn("[BG] No Netflix tab found");
+            sendResponse({
+              error: "NO_NETFLIX_TAB",
+              hint: "Open a Netflix tab on the page you want to sync and try again.",
+            });
+            return;
+          }
+
+          if (netflixTabs.length > 1) {
+            console.warn("[BG] Multiple Netflix tabs found");
+            sendResponse({
+              error: "MULTIPLE_NETFLIX_TABS",
+              hint: "Multiple Netflix tabs are open. Please close all extra Netflix tabs and keep only the one you want to use with Movie Time, then try again.",
+            });
+            return;
+          }
+
+          const t = netflixTabs[0];
+          if (!t.id) {
+            console.error("[BG] Selected Netflix tab has no id");
+            sendResponse({ error: "INVALID_NETFLIX_TAB" });
+            return;
+          }
+
+          tabId = t.id;
+          currentSessionTabId = t.id;
+          console.log("[BG] Binding session to Netflix tab", t.id, t.url);
         }
 
         const ready = await waitForContent(tabId);
         if (!ready) {
-          console.error("[BG] Content not ready on this page");
+          console.error("[BG] Content not ready on session tab", tabId);
           sendResponse({
             error: "CONTENT_NOT_READY",
-            hint: "Apri una scheda Netflix, ricarica la pagina e riprova.",
+            hint: "Make sure the Netflix page is loaded, then reload the page and try again.",
           });
           return;
         }
 
-        console.log("[BG] Forwarding signaling to content:", msg.type);
+        console.log("[BG] Forwarding signaling to content on tab", tabId, ":", msg.type);
         chrome.tabs.sendMessage(tabId, msg, (res) => {
           const err = chrome.runtime.lastError;
           if (err) {
@@ -90,16 +131,28 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "loading") {
     const url = tab.url || "";
 
-    // opzionale: limita ai domini Netflix
+    // Se è la tab di sessione, resettiamo anche lo stato di sessione
+    if (tabId === currentSessionTabId) {
+      console.log("[BG] Session Netflix tab reloading, clearing session and popup state");
+      currentSessionTabId = null;
+      chrome.storage.local.remove(POPUP_STATE_KEYS);
+    }
+
+    // opzionale: limita ai domini Netflix (comportamento originale)
     if (url.includes("netflix.com")) {
       console.log("[BG] Page reload on Netflix tab, clearing popup state");
-      chrome.storage.local.remove([
-        "mt_offer",
-        "mt_answer",
-        "mt_incomingOffer",
-        "mt_answerForPeer",
-        "mt_activeStep",
-      ]);
+      chrome.storage.local.remove(POPUP_STATE_KEYS);
     }
+  }
+});
+
+
+
+// --- Reset stato sessione quando la tab viene chiusa ---
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === currentSessionTabId) {
+    console.log("[BG] Session Netflix tab closed, clearing session and popup state");
+    currentSessionTabId = null;
+    chrome.storage.local.remove(POPUP_STATE_KEYS);
   }
 });

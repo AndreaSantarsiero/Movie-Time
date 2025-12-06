@@ -27,6 +27,16 @@ const copyAnswerForPeerBtn = document.getElementById("btn-copy-answer-for-peer")
 
 type ActiveStep = "choice" | "create" | "join";
 
+type SignalingContext = "create-offer" | "apply-answer" | "generate-answer";
+
+type PopupStorageState = {
+  mt_offer: string;
+  mt_answer: string;
+  mt_incomingOffer: string;
+  mt_answerForPeer: string;
+  mt_activeStep: ActiveStep;
+};
+
 
 
 // helper opzionale per classi CSS di stato NAT
@@ -55,6 +65,30 @@ function showStep(step: ActiveStep) {
 }
 
 
+// Mostra gli errori di signaling in un popup (alert) con messaggi user-friendly
+function handleSignalingError(context: SignalingContext, res: any) {
+  const rawError = res?.error;
+  const hint = typeof res?.hint === "string" ? res.hint : undefined;
+
+  console.warn("[Popup] Signaling error:", { context, rawError, hint });
+
+  let baseMessage: string;
+  if (context === "create-offer") {
+    baseMessage = "Failed to create offer.";
+  } else if (context === "apply-answer") {
+    baseMessage = "Failed to apply answer.";
+  } else {
+    baseMessage = "Failed to generate answer.";
+  }
+
+  const detail = hint ?? "Please make sure you have a single Netflix tab open on the title you want to sync, then try again.";
+  const fullMessage = `${baseMessage}\n${detail}`;
+
+  alert(`❌ ${fullMessage}`);
+  statusEl.innerText = `❌ ${baseMessage}`;
+}
+
+
 
 // ---- Ripristino stato dal storage all'avvio del popup ----
 chrome.storage.local.get(
@@ -65,7 +99,9 @@ chrome.storage.local.get(
     mt_answerForPeer: "",
     mt_activeStep: "choice" as ActiveStep,
   },
-  (data) => {
+  (raw) => {
+    const data = raw as PopupStorageState;
+
     offerEl.value = data.mt_offer;
     answerEl.value = data.mt_answer;
     incomingOfferEl.value = data.mt_incomingOffer;
@@ -169,7 +205,7 @@ createBtn.onclick = () => {
       chrome.storage.local.set({ mt_offer: encoded });
       statusEl.innerText = "✅ Offer created. Copy and share it.";
     } else {
-      statusEl.innerText = `❌ Failed to create offer: ${res?.error ?? "NO_RESPONSE"}`;
+      handleSignalingError("create-offer", res);
     }
   });
 };
@@ -201,9 +237,11 @@ connectBtn.onclick = () => {
       return;
     }
     console.log("[Popup] APPLY_ANSWER resp:", res);
-    statusEl.innerText = res?.ok
-      ? "✅ Connected!"
-      : `❌ Failed to apply answer: ${res?.error ?? "NO_RESPONSE"}`;
+    if (res?.ok) {
+      statusEl.innerText = "✅ Connected!";
+    } else {
+      handleSignalingError("apply-answer", res);
+    }
   });
 };
 
@@ -241,7 +279,7 @@ genAnswerBtn.onclick = () => {
       chrome.storage.local.set({ mt_answerForPeer: encoded });
       statusEl.innerText = "✅ Answer generated. Send it back.";
     } else {
-      statusEl.innerText = `❌ Failed to generate answer: ${res?.error ?? "NO_RESPONSE"}`;
+      handleSignalingError("generate-answer", res);
     }
   });
 };
