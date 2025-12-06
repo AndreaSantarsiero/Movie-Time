@@ -182,34 +182,38 @@ function ensureStyle() {
     .mt-emoji-reaction {
       position: absolute;
       bottom: -40px;
-      transform: translate(-50%, 0) scale(0.9);
+      transform: translate(0, 0) scale(0.9);
       opacity: 0;
       filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.6));
       will-change: transform, opacity;
       animation-name: mt-emoji-float-up;
-      animation-timing-function: ease-out;
+      animation-timing-function: linear;
       animation-fill-mode: forwards;
     }
 
     @keyframes mt-emoji-float-up {
       0% {
-        transform: translate(-50%, 0) scale(0.9);
+        transform: translate(0vw, 0) scale(0.9);
         opacity: 0;
       }
-      15% {
-        transform: translate(-50%, -10vh) scale(1);
-        opacity: 1;
+      20% {
+        transform: translate(0vw, -20vh) scale(1);
+        opacity: 0.9;
       }
       40% {
-        transform: translate(-55%, -40vh) scale(1.05);
-        opacity: 1;
+        transform: translate(0vw, -40vh) scale(1.05);
+        opacity: 0.9;
       }
-      65% {
-        transform: translate(-45%, -70vh) scale(1.1);
-        opacity: 0.95;
+      60% {
+        transform: translate(0vw, -60vh) scale(1.1);
+        opacity: 0.8;
+      }
+      80% {
+        transform: translate(0vw, -80vh) scale(1.14);
+        opacity: 0.7;
       }
       100% {
-        transform: translate(-50%, -100vh) scale(1.18);
+        transform: translate(0vw, -100vh) scale(1.18);
         opacity: 0;
       }
     }
