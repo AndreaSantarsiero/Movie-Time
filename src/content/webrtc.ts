@@ -28,7 +28,7 @@ export function onSyncMessage(fn: SyncHandler) {
 }
 
 
-/** Callback eseguite quando il link WebRTC è "connected" (ICE connected/completed o DC aperto) */
+/** Callback eseguite quando il link WebRTC è "connected" (ICE connected/completed, DC aperto o media remoti ricevuti) */
 export function onRTCConnected(fn: RTCConnectedHandler) {
   if (typeof fn !== "function") return;
   __rtcConnectedHandlers.push(fn);
@@ -44,11 +44,11 @@ export function onRTCConnected(fn: RTCConnectedHandler) {
 }
 
 
-function notifyRTCConnectedOnce() {
+function notifyRTCConnectedOnce(source: string = "unknown") {
   if (__rtcHasConnected) return;
   __rtcHasConnected = true;
 
-  console.log("[RTC] Connection considered established → notifying handlers");
+  console.log("[RTC] Connection considered established from", source, "→ notifying handlers");
   for (const fn of __rtcConnectedHandlers) {
     try {
       fn();
@@ -145,6 +145,7 @@ export class RTCLink {
 
     // Media: in arrivo
     this.pc.ontrack = (ev) => {
+      console.log("[RTC] ontrack received:", ev.track.kind);
       if (ev.streams && ev.streams[0]) {
         this.remoteStream = ev.streams[0];
       } else {
@@ -152,6 +153,9 @@ export class RTCLink {
       }
       _lastRemoteStream = this.remoteStream;
       if (_remoteStreamCb) _remoteStreamCb(this.remoteStream);
+
+      // Se stiamo già ricevendo media remoti, consideriamo la connessione operativa
+      notifyRTCConnectedOnce("remote-track");
     };
 
     // Media: in uscita
@@ -168,7 +172,7 @@ export class RTCLink {
         this.pc.iceConnectionState === "connected" ||
         this.pc.iceConnectionState === "completed"
       ) {
-        notifyRTCConnectedOnce();
+        notifyRTCConnectedOnce("ice-connection-state");
       }
     };
 
@@ -188,7 +192,7 @@ export class RTCLink {
     this.dc.onopen = () => {
       console.log("[RTC] DataChannel 'sync' open");
       // Quando il DC è open, la connessione è operativa: notifichiamo eventuali listener
-      notifyRTCConnectedOnce();
+      notifyRTCConnectedOnce("datachannel-open");
     };
     this.dc.onclose = () => console.log("[RTC] DataChannel 'sync' close");
     this.dc.onerror = (e) => console.error("[RTC] DataChannel error", e);
