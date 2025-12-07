@@ -11,12 +11,13 @@ body {
   width: 320px;
 }
 
-/* Header con titolo + back button */
+/* Header con logo Movie Time */
 .mt-header {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center; /* centra il titolo */
+  justify-content: center;   /* centra il logo */
+  margin-top: 14px;          /* spazio per il tasto Back sopra */
   margin-bottom: 8px;
 }
 
@@ -76,9 +77,10 @@ button:active {
 /* Back button in alto a sinistra, assoluto */
 .mt-back-button {
   position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  left: 18px;
+  top: 12px;
+  transform: none;
+  z-index: 10; 
 
   width: auto;
   padding: 4px 8px;
@@ -94,11 +96,11 @@ button:active {
 
 .mt-back-button:hover {
   background-color: #1f1f1f;
-  transform: translateY(-50%); /* niente zoom, solo centering verticale */
+  transform: none;
 }
 
 .mt-back-button:active {
-  transform: translateY(-50%);
+  transform: none;
 }
 
 /* Contenitore per i mini pulsanti sotto i textarea */
@@ -156,4 +158,12 @@ button:active {
 ::selection {
   background: #e50914;
   color: #fff;
+}
+
+/* Logo nell'header */
+.mt-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
 }
