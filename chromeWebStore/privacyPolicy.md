@@ -146,4 +146,4 @@ Any updates will be reflected on this page, and the “Last updated” date will
 
 For questions, suggestions, or concerns related to privacy, please contact:
 
-**[GitHub profile](https://github.com/AndreaSantarsiero/)**
+- **[Dev email](dev.movietime@gmail.com)**

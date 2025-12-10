@@ -14,4 +14,4 @@ The user agrees not to reverse engineer, modify, distribute, sublicense or explo
 
 These Terms of Use may be updated periodically. Continued use of the extension following publication of updates constitutes acceptance of the revised Terms. If you do not agree to the updated Terms, you must discontinue use of the extension.
 
-For questions or concerns regarding these Terms of Use, please contact the developer at https://github.com/AndreaSantarsiero/.
+For questions or concerns regarding these Terms of Use, please contact the developer at dev.movietime@gmail.com.
