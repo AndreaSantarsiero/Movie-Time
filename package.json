@@ -1,13 +1,12 @@
 {
   "name": "movie-time",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "[FREE] Watch Netflix together with real-time sync and built-in video chat",
   "scripts": {
     "build:popup": "vite build --mode popup",
     "build:content": "vite build --mode content",
     "build:background": "vite build --mode background",
     "build:bridge": "vite build --mode bridge",
-
     "build": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && node scripts/build-targets.cjs",
     "build:chrome": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && node scripts/build-targets.cjs chrome",
     "build:firefox": "npm run build:popup && npm run build:content && npm run build:background && npm run build:bridge && node scripts/build-targets.cjs firefox"
