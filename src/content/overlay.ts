@@ -97,6 +97,41 @@ export function createOverlay() {
         opacity: .85;
         white-space: nowrap;
       }
+      #emoji-menu {
+        display: flex;
+        gap: 6px;
+        padding: 6px;
+        background: rgba(0,0,0,0.6);
+        border-radius: 20px;
+        position: absolute;
+        bottom: 50px;
+        right: 10px;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(10px);
+        transition: opacity .15s ease, visibility .15s ease, transform .15s ease;
+        pointer-events: none;
+      }
+      #emoji-menu.show-menu {
+        opacity: 1; visibility: visible; transform: none;
+        pointer-events: auto;
+      }
+      #emoji-menu button {
+        background: rgba(255,255,255,0.1);
+        font-size: 16px;
+        padding: 6px;
+        border-radius: 50%;
+        width: 32px; height: 32px;
+        display: flex; align-items: center; justify-content: center;
+        transition: transform 0.1s;
+      }
+      #emoji-menu button:hover {
+        background: rgba(255,255,255,0.3);
+        transform: scale(1.2);
+      }
+      #emoji-menu button:active {
+        transform: scale(0.95);
+      }
     </style>
     <div id="wrapper">
       <video id="remote" autoplay playsinline></video>
@@ -111,10 +146,18 @@ export function createOverlay() {
         <button id="emoji">❤️</button>
         <button id="close">❌</button>
       </div>
+      <div id="emoji-menu">
+        <button data-emoji="❤️">❤️</button>
+        <button data-emoji="😂">😂</button>
+        <button data-emoji="😮">😮</button>
+        <button data-emoji="😢">😢</button>
+        <button data-emoji="🥰">🥰</button>
+        <button data-emoji="🔥">🔥</button>
+      </div>
     </div>
   `;
 
-  
+
 
   // Auto-hide controls (mostra su attività/tocco, nascondi dopo idle)
   let hideTimer: number | null = null;
@@ -125,6 +168,8 @@ export function createOverlay() {
       if (hideTimer !== null) window.clearTimeout(hideTimer);
       hideTimer = window.setTimeout(() => {
         container.classList.remove("show-controls");
+        const em = shadow.getElementById("emoji-menu");
+        if (em) em.classList.remove("show-menu");
       }, 1500); // tempo di visibilità dopo l'ultima attività
     }
   }
@@ -312,7 +357,7 @@ export function createOverlay() {
       if (!ok) {
         alert(
           "Microfono non disponibile.\n" +
-            "Controlla che il microfono sia collegato e che il browser abbia i permessi audio per questo sito."
+          "Controlla che il microfono sia collegato e che il browser abbia i permessi audio per questo sito."
         );
         // Rimaniamo in stato OFF
         btnMute.classList.add("off");
@@ -342,7 +387,7 @@ export function createOverlay() {
         if (!ok) {
           alert(
             "Camera non disponibile.\n" +
-              "Controlla che la webcam sia collegata e che il browser abbia i permessi video per questo sito."
+            "Controlla che la webcam sia collegata e che il browser abbia i permessi video per questo sito."
           );
           // Rimaniamo in stato OFF
           btnCam.classList.add("off");
@@ -364,7 +409,62 @@ export function createOverlay() {
 
 
   // Emoji reaction (locale + sync verso il peer)
-  if (btnEmoji) {
+  const emojiMenu = shadow.getElementById("emoji-menu");
+
+  if (btnEmoji && emojiMenu) {
+    // 1. Toggle menu on Main Heart click
+    btnEmoji.onclick = (e) => {
+      e.stopPropagation(); // evita che il click venga catturato da logiche globali se ce ne sono
+      const isOpen = emojiMenu.classList.contains("show-menu");
+      if (isOpen) {
+        emojiMenu.classList.remove("show-menu");
+      } else {
+        emojiMenu.classList.add("show-menu");
+        showControls(true); // mantieni viva la UI
+      }
+    };
+
+    // 2. Click su emoji del menu
+    const emojiBtns = emojiMenu.querySelectorAll("button");
+    emojiBtns.forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation(); // non chiudere menu
+        const emoji = b.getAttribute("data-emoji");
+        if (!emoji) return;
+
+        // Invia
+        try {
+          showEmojiReaction(emoji);
+        } catch (e) {
+          console.error("[Overlay] Failed to show local emoji reaction:", e);
+        }
+        try {
+          sendSync({ type: "EMOJI_REACTION", emoji });
+        } catch (e) {
+          console.error("[Overlay] Failed to send emoji reaction over DC:", e);
+        }
+
+        // Mantieni UI attiva
+        showControls(true);
+      };
+    });
+
+    // 3. Close on outside click (ma NON se click su controls)
+    container.addEventListener("mousedown", (e) => {
+      const path = e.composedPath();
+      const target = path[0] as HTMLElement;
+
+      // Se il click è dentro il menu emoji o dentro i controlli principali, IGNORA
+      const inMenu = emojiMenu.contains(target) || emojiMenu === target;
+      const inControls = controlsEl ? (controlsEl.contains(target) || controlsEl === target) : false;
+
+      if (!inMenu && !inControls) {
+        emojiMenu.classList.remove("show-menu");
+      }
+    });
+
+  } else if (btnEmoji) {
+    // Fallback vecchio comportamento (se html non aggiornato per qualche motivo)
     btnEmoji.onclick = () => {
       const emoji = "❤️";
       try {
@@ -405,7 +505,7 @@ export function createOverlay() {
     // Invio segnale di chiusura all'altro peer
     try {
       sendCloseCall();
-    } catch {}
+    } catch { }
 
     // Spegni tutte le tracce locali gestite da UserMedia
     cleanupUserMedia();
@@ -445,7 +545,7 @@ export function createOverlay() {
     // Resetta lo stato dell’estensione localmente
     try {
       chrome.runtime.sendMessage({ type: "RESET_STATE" });
-    } catch {}
+    } catch { }
   };
 
 
@@ -453,14 +553,14 @@ export function createOverlay() {
   onCallClosed(() => {
     try {
       setSyncEnabled(false);
-    } catch {}
+    } catch { }
 
     cleanupUserMedia();
 
     const remoteStream = remote.srcObject as MediaStream | null;
     if (remoteStream) {
       remoteStream.getTracks().forEach((t) => {
-        try { t.stop(); } catch {}
+        try { t.stop(); } catch { }
       });
       remote.srcObject = null;
     }
@@ -469,11 +569,11 @@ export function createOverlay() {
       const rtc = getSingletonRTC();
       if (rtc && rtc.pc) {
         rtc.pc.getSenders().forEach((s) => {
-          try { s.track?.stop(); } catch {}
+          try { s.track?.stop(); } catch { }
         });
         rtc.pc.close();
       }
-    } catch {}
+    } catch { }
 
     container.remove();
   });
