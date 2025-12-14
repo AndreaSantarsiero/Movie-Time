@@ -51,6 +51,15 @@ export interface SyncConfig {
 
 
   /**
+   * Compensazione fissa (in secondi) da aggiungere al tempo ricevuto
+   * per mitigare il ritardo di rete medio (es. 0.03 = 30ms).
+   * Migliora la sync su lunghe distanze; su brevi distanze il follower
+   * sarà leggermente "avanti" (~20ms), comunque impercettibile.
+   */
+  approximateNetworkDelaySeconds: number;
+
+
+  /**
    * Se true, durante il full sync iniziale e gli hard sync, il playbackRate
    * viene forzato a `forcedPlaybackRate` su entrambi i peer.
    */
@@ -75,13 +84,14 @@ export const defaultSyncConfig: SyncConfig = {
   enabledDurationCheck: true,
   maxDurationDeltaRatio: 0.5,
 
-  autoSyncIntervalMs: 5000,
-  leaderHeartbeatTimeoutMs: 17000,
+  autoSyncIntervalMs: 4000,
+  leaderHeartbeatTimeoutMs: 13500,
 
   softDesyncThresholdSeconds: 0.5,
-  hardDesyncThresholdSeconds: 3.0,
+  hardDesyncThresholdSeconds: 2.5,
 
-  suppressAutoMessagesAfterLocalMs: 4000,
+  suppressAutoMessagesAfterLocalMs: 3000,
+  approximateNetworkDelaySeconds: 0.03,
 
   forcePlaybackRateOnSync: true,
   forcedPlaybackRate: 1.0,

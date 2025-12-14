@@ -87,8 +87,8 @@ interface ActivationInfo {
 
 
 // ---- Costanti interne (non di config) ----
-const LOCAL_SEEK_DETECT_THRESHOLD_SECONDS = 1.0;
-const REMOTE_UPDATE_SUPPRESS_MS = 400;
+const LOCAL_SEEK_DETECT_THRESHOLD_SECONDS = 1.6;
+const REMOTE_UPDATE_SUPPRESS_MS = 700;
 
 
 // ---- Stato interno ----
@@ -513,8 +513,8 @@ function handleAutoStateMessage(msg: AutoStateMessage) {
     return;
   }
 
-  const latencySeconds = (now - msg.sentAt) / 1000;
-  const leaderTime = msg.time + latencySeconds;
+  // Applichiamo un offset fisso statistico per compensare la latenza media di rete
+  const leaderTime = msg.time + syncConfig.approximateNetworkDelaySeconds;
   const drift = Math.abs(localPositionSeconds - leaderTime);
 
   emitUi({ lastDriftSeconds: drift });
@@ -548,8 +548,8 @@ function handleManualStateMessage(msg: ManualStateMessage) {
   const now = nowMs();
   lastHeartbeatAt = now;
 
-  const latencySeconds = (now - msg.sentAt) / 1000;
-  const leaderTime = msg.time + latencySeconds;
+  // Applichiamo un offset fisso statistico per compensare la latenza media di rete
+  const leaderTime = msg.time + syncConfig.approximateNetworkDelaySeconds;
 
   const drift = Math.abs(localPositionSeconds - leaderTime);
   log("Applying MANUAL_STATE (last manual wins)", { drift, leaderTime, paused: msg.paused });
