@@ -506,14 +506,12 @@ function handleAutoStateMessage(msg: AutoStateMessage) {
     return;
   }
 
-  // Applichiamo un offset fisso statistico per compensare la latenza media di rete
   const leaderTime = msg.time + (syncConfig.approximateNetworkDelaySeconds || 0);
   const drift = Math.abs(localPositionSeconds - leaderTime);
 
   emitUi({ lastDriftSeconds: drift });
 
-  // Apply if drift is high OR if play/pause state is different (force sync state)
-  if (drift >= syncConfig.hardDesyncThresholdSeconds || msg.paused !== localPaused) {
+  if (drift >= syncConfig.hardDesyncThresholdSeconds) {
     log("Applying AUTO_STATE", { drift, leaderTime, paused: msg.paused });
     applyRemoteState(leaderTime, msg.paused);
   }
@@ -542,7 +540,6 @@ function handleManualStateMessage(msg: ManualStateMessage) {
   const now = nowMs();
   lastHeartbeatAt = now;
 
-  // Applichiamo un offset fisso statistico per compensare la latenza media di rete
   const leaderTime = msg.time + (syncConfig.approximateNetworkDelaySeconds || 0);
 
   const drift = Math.abs(localPositionSeconds - leaderTime);
