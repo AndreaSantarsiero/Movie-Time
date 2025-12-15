@@ -101,10 +101,10 @@ export function createOverlay() {
         display: flex;
         gap: 6px;
         padding: 6px;
-        background: rgba(0,0,0,0.6);
+        background: rgba(0,0,0,0.4);
         border-radius: 20px;
         position: absolute;
-        bottom: 50px;
+        bottom: 31px;
         right: 10px;
         opacity: 0;
         visibility: hidden;
@@ -126,7 +126,7 @@ export function createOverlay() {
         transition: transform 0.1s;
       }
       #emoji-menu button:hover {
-        background: rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.25);
         transform: scale(1.2);
       }
       #emoji-menu button:active {
@@ -167,6 +167,8 @@ export function createOverlay() {
     if (temp) {
       if (hideTimer !== null) window.clearTimeout(hideTimer);
       hideTimer = window.setTimeout(() => {
+        if (container.matches(":hover")) return;
+
         container.classList.remove("show-controls");
         const em = shadow.getElementById("emoji-menu");
         if (em) em.classList.remove("show-menu");
