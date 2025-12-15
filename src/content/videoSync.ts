@@ -88,7 +88,7 @@ interface ActivationInfo {
 
 // ---- Costanti interne (non di config) ----
 const LOCAL_SEEK_DETECT_THRESHOLD_SECONDS = 1.6;
-const REMOTE_UPDATE_SUPPRESS_MS = 700;
+const REMOTE_UPDATE_SUPPRESS_MS = 550;
 
 
 // ---- Stato interno ----
@@ -398,14 +398,7 @@ function tryEstablishSync() {
   const remoteTs = remoteActivation.activationTimestamp;
 
   let newRole: SyncRole;
-  if (localTs < remoteTs) {
-    newRole = "leader";
-  } else if (localTs > remoteTs) {
-    newRole = "follower";
-  } else {
-    if (!remotePeerId) return;
-    newRole = myPeerId < remotePeerId ? "leader" : "follower";
-  }
+  newRole = myPeerId < remotePeerId ? "leader" : "follower";
 
   enterSyncedState(newRole);
 }
@@ -514,13 +507,14 @@ function handleAutoStateMessage(msg: AutoStateMessage) {
   }
 
   // Applichiamo un offset fisso statistico per compensare la latenza media di rete
-  const leaderTime = msg.time + syncConfig.approximateNetworkDelaySeconds;
+  const leaderTime = msg.time + (syncConfig.approximateNetworkDelaySeconds || 0);
   const drift = Math.abs(localPositionSeconds - leaderTime);
 
   emitUi({ lastDriftSeconds: drift });
 
-  if (drift >= syncConfig.hardDesyncThresholdSeconds) {
-    log("Hard desync, applying AUTO_STATE", { drift, leaderTime, paused: msg.paused });
+  // Apply if drift is high OR if play/pause state is different (force sync state)
+  if (drift >= syncConfig.hardDesyncThresholdSeconds || msg.paused !== localPaused) {
+    log("Applying AUTO_STATE", { drift, leaderTime, paused: msg.paused });
     applyRemoteState(leaderTime, msg.paused);
   }
 }
@@ -549,7 +543,7 @@ function handleManualStateMessage(msg: ManualStateMessage) {
   lastHeartbeatAt = now;
 
   // Applichiamo un offset fisso statistico per compensare la latenza media di rete
-  const leaderTime = msg.time + syncConfig.approximateNetworkDelaySeconds;
+  const leaderTime = msg.time + (syncConfig.approximateNetworkDelaySeconds || 0);
 
   const drift = Math.abs(localPositionSeconds - leaderTime);
   log("Applying MANUAL_STATE (last manual wins)", { drift, leaderTime, paused: msg.paused });
