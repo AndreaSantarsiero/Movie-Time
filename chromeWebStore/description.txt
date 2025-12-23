@@ -1,6 +1,6 @@
 ⭐ Movie Time – Watch Netflix together, from anywhere  
-Enjoy your favourite movies and shows as if you were sitting next to each other with real-time synchronized playback and built-in video chat.  
-No accounts. No servers. No data collection. Just the two of you, sharing the moment.
+Enjoy your favourite movies and shows as if you were sitting next to each other with real-time synchronized playback and built-in video chat
+No accounts. No servers. No data collection. Just the two of you, sharing the moment
 
 
 ⚠️ Important for a smooth experience  
@@ -18,15 +18,16 @@ A small popup will guide you to test your connection, create a session, or join 
 
 Creating a session  
 1. Click “Create Session” → “Generate Offer”  
-2. Copy the generated text and send it to the person you want to watch with.
+2. Copy the generated text and send it to the person you want to watch with
+3. Complete the final step as explained below
 
 Joining a session  
 1. Click “Join Session”  
 2. Paste the text you received → “Generate Answer”  
-3. Send your answer back to the other person.
+3. Send your answer back to the other person
 
 Final step  
-The person who created the session just needs to paste the answer they received and press “Connect”.
+The person who created the session just needs to paste the answer they received and press “Connect”
 
 🎥 What happens next  
 Once connected, a floating overlay appears on your Netflix tab so you can see and hear each other while watching together.  
@@ -39,4 +40,4 @@ Then press the sync button: playback will instantly stay aligned for both of you
 Press again at any time to disable synchronization.
 
 ❤️ Movie Time  
-Whether you're in a long-distance relationship, watching with a friend across the world, or simply sharing a show with someone you care about — Movie Time makes it feel like you're together.
+Whether you're in a long-distance relationship, watching with a friend across the world, or simply sharing a show with someone you care about — Movie Time makes it feel like you're together
