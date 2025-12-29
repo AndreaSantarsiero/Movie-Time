@@ -1,6 +1,6 @@
 {
   "name": "movie-time",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "[FREE] Watch Netflix together with real-time sync and built-in video chat",
   "scripts": {
     "build:popup": "vite build --mode popup",
