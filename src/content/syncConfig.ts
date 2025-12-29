@@ -21,14 +21,6 @@ export interface SyncConfig {
 
 
   /**
-   * Timeout massimo oltre il quale, se non arrivano heartbeat dal leader
-   * mentre siamo in stato synced, la connessione di sync può essere
-   * considerata degradata o interrotta (ms).
-   */
-  leaderHeartbeatTimeoutMs: number;
-
-
-  /**
    * Soglia di desync "morbida" in secondi: differenze inferiori a questa
    * soglia vengono generalmente ignorate e non causano alcun riallineamento.
    */
@@ -85,7 +77,6 @@ export const defaultSyncConfig: SyncConfig = {
   maxDurationDeltaRatio: 0.5,
 
   autoSyncIntervalMs: 4000,
-  leaderHeartbeatTimeoutMs: 13500,
 
   softDesyncThresholdSeconds: 0.5,
   hardDesyncThresholdSeconds: 2.5,

@@ -24,7 +24,7 @@ import { syncConfig } from "./syncConfig";
 type SyncRole = "leader" | "follower" | "none";
 
 // Stato del protocollo lato client
-type SyncPhase = "disabled" | "activating" | "synced" | "degraded";
+type SyncPhase = "disabled" | "activating" | "synced";
 
 export interface UiState {
   enabled: boolean;               // toggle locale del sync
@@ -111,10 +111,6 @@ let lastTickPaused = true;
 // heartbeat leader → follower
 let heartbeatTimer: number | null = null;
 
-// timeout lato follower
-let heartbeatWatchdogTimer: number | null = null;
-let lastHeartbeatAt = 0;
-
 // finestra di protezione lato follower dopo un manuale locale
 let lastLocalManualAt = 0;
 
@@ -181,7 +177,6 @@ export function onSyncUiUpdate(handler: (state: UiState) => void) {
 export function setupVideoSync() {
   setupPageBridge();
   setupSyncChannel();
-  startHeartbeatWatchdog();
   emitUi();
 }
 
@@ -463,7 +458,6 @@ function sendFullState() {
 function handleFullStateMessage(msg: FullStateMessage) {
   if (!syncEnabled) return;
 
-  lastHeartbeatAt = nowMs();
   if (phase !== "synced") {
     role = role === "none" ? "follower" : role;
     phase = "synced";
@@ -498,7 +492,6 @@ function handleAutoStateMessage(msg: AutoStateMessage) {
   if (role !== "follower") return;
 
   const now = nowMs();
-  lastHeartbeatAt = now;
 
   const timeSinceLocalManual = now - lastLocalManualAt;
   if (timeSinceLocalManual < syncConfig.suppressAutoMessagesAfterLocalMs) {
@@ -538,7 +531,6 @@ function handleManualStateMessage(msg: ManualStateMessage) {
   if (phase !== "synced") return;
 
   const now = nowMs();
-  lastHeartbeatAt = now;
 
   const leaderTime = msg.time + (syncConfig.approximateNetworkDelaySeconds || 0);
 
@@ -596,26 +588,4 @@ function stopHeartbeat() {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
-}
-
-
-function startHeartbeatWatchdog() {
-  if (heartbeatWatchdogTimer !== null) return;
-
-  heartbeatWatchdogTimer = window.setInterval(() => {
-    if (!syncEnabled) return;
-    if (phase === "degraded") return;
-    if (phase !== "synced") return;
-    if (role !== "follower") return;
-
-    const now = nowMs();
-    if (lastHeartbeatAt === 0) return;
-
-    const elapsed = now - lastHeartbeatAt;
-    if (elapsed > syncConfig.leaderHeartbeatTimeoutMs) {
-      phase = "degraded";
-      log("Leader heartbeat timeout, entering degraded state");
-      emitUi();
-    }
-  }, 1000) as unknown as number;
 }
