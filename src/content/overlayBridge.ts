@@ -36,27 +36,38 @@ window.addEventListener("message", (ev) => {
   if (!data || data.source !== "movie-time-content") return;
 
   const player = getPlayer();
+  const video = getVideoElement();
 
   // Comandi di controllo playback usati dal protocollo di sync
-  if (data.type === "PLAY" && player) {
-    player.play();
+  if (data.type === "PLAY") {
+    if (player) {
+      player.play();
+    } else if (video) {
+      video.play().catch((e) => console.warn("[Bridge] Video play failed", e));
+    }
   }
 
-  if (data.type === "PAUSE" && player) {
-    player.pause();
+  if (data.type === "PAUSE") {
+    if (player) {
+      player.pause();
+    } else if (video) {
+      video.pause();
+    }
   }
 
-  if (data.type === "SEEK" && player) {
-    // data.time è in secondi → converti in ms per Netflix
+  if (data.type === "SEEK") {
     const timeSec = Number(data.time) || 0;
-    player.seek(timeSec * 1000);
+    if (player) {
+      player.seek(timeSec * 1000);
+    } else if (video) {
+      video.currentTime = timeSec;
+    }
   }
 
   // Controllo playbackRate unificato sul <video>
   if (data.type === "SET_RATE") {
     try {
-      const v = getVideoElement();
-      if (v) v.playbackRate = Number(data.rate) || 1.0;
+      if (video) video.playbackRate = Number(data.rate) || 1.0;
     } catch {
       // ignore
     }
@@ -64,8 +75,7 @@ window.addEventListener("message", (ev) => {
 
   if (data.type === "CLEAR_RATE") {
     try {
-      const v = getVideoElement();
-      if (v) v.playbackRate = 1.0;
+      if (video) video.playbackRate = 1.0;
     } catch {
       // ignore
     }
