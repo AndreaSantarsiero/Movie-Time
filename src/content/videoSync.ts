@@ -567,7 +567,11 @@ function applyRemoteState(timeSeconds: number, paused: boolean) {
     enforcePlaybackRate();
   }
 
-  postToPage({ type: "SEEK", time: timeSeconds });
+  const drift = Math.abs(timeSeconds - localPositionSeconds);
+
+  if (drift > syncConfig.hardDesyncThresholdSeconds) {
+    postToPage({ type: "SEEK", time: timeSeconds });
+  }
 
   if (paused) {
     postToPage({ type: "PAUSE" });
