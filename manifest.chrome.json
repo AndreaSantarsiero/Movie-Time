@@ -15,7 +15,7 @@
     "clipboardRead"
   ],
   "host_permissions": [
-    "*://*.netflix.com/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -27,7 +27,7 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.netflix.com/*"
+        "<all_urls>"
       ],
       "js": [
         "content.js"
@@ -40,7 +40,7 @@
         "overlayBridge.js"
       ],
       "matches": [
-        "*://*.netflix.com/*"
+        "<all_urls>"
       ]
     }
   ]

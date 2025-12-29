@@ -60,7 +60,7 @@ export default ({ mode }: { mode: string }) => {
   }
 
   if (mode === "bridge") {
-    return iifeSingleFile(resolve(__dirname, "src/content/overlayBridge.ts"), "overlayBridge.js");
+    return iifeSingleFile(resolve(__dirname, "src/content/bridge/overlayBridge.ts"), "overlayBridge.js");
   }
 
 

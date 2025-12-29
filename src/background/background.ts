@@ -57,38 +57,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         let tabId = currentSessionTabId;
 
-        // Se non abbiamo ancora una tab di sessione, scegliamo una tab Netflix
+        // Se non abbiamo ancora una tab di sessione, scegliamo la tab attiva
         if (tabId == null) {
-          const netflixTabs = await chrome.tabs.query({ url: "*://*.netflix.com/*" });
+          const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-          if (netflixTabs.length === 0) {
-            console.warn("[BG] No Netflix tab found");
+          if (!activeTab || !activeTab.id) {
+            console.warn("[BG] No active tab found");
             sendResponse({
-              error: "NO_NETFLIX_TAB",
-              hint: "Open a Netflix tab on the page you want to sync and try again.",
+              error: "NO_ACTIVE_TAB",
+              hint: "Please open a video page and try again.",
             });
             return;
           }
 
-          if (netflixTabs.length > 1) {
-            console.warn("[BG] Multiple Netflix tabs found");
+          // Verifichiamo se l'URL è supportato o se non è una pagina di sistema
+          if (!activeTab.url || activeTab.url.startsWith("chrome://") || activeTab.url.startsWith("edge://") || activeTab.url.startsWith("about:")) {
+            console.warn("[BG] Restricted tab", activeTab.url);
             sendResponse({
-              error: "MULTIPLE_NETFLIX_TABS",
-              hint: "Multiple Netflix tabs are open. Please close all extra Netflix tabs and keep only the one you want to use with Movie Time, then try again.",
+              error: "RESTRICTED_TAB",
+              hint: "Movie Time cannot run on this page. Please open a regular video site.",
             });
             return;
           }
 
-          const t = netflixTabs[0];
-          if (!t.id) {
-            console.error("[BG] Selected Netflix tab has no id");
-            sendResponse({ error: "INVALID_NETFLIX_TAB" });
-            return;
-          }
-
-          tabId = t.id;
-          currentSessionTabId = t.id;
-          console.log("[BG] Binding session to Netflix tab", t.id, t.url);
+          tabId = activeTab.id;
+          currentSessionTabId = activeTab.id;
+          console.log("[BG] Binding session to tab", activeTab.id, activeTab.url);
         }
 
         const ready = await waitForContent(tabId);
