@@ -327,7 +327,6 @@ export function createOverlay() {
         case "disabled": return "off";
         case "activating": return "activating";
         case "synced": return "";
-        case "degraded": return "degraded";
         default: return state.phase;
       }
     })();
