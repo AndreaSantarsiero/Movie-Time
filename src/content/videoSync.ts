@@ -226,14 +226,28 @@ function setupPageBridge() {
     }
 
     if (data.type === "TICK") {
-      handleLocalTick(Number(data.time) || 0, !!data.paused);
+      handleLocalTick(Number(data.time) || 0, !!data.paused, Number(data.duration) || 0);
       return;
     }
   });
 }
 
 
-function handleLocalTick(timeSeconds: number, paused: boolean) {
+
+function handleLocalTick(timeSeconds: number, paused: boolean, durationSeconds?: number) {
+  // Se la durata del video è cambiata, aggiorniamola subito
+  if (
+    typeof durationSeconds === "number" &&
+    durationSeconds > 0 &&
+    localDurationSeconds !== durationSeconds
+  ) {
+    // Se la differenza è significativa (> 10s), consideriamo che il contenuto sia cambiato
+    if (!localDurationSeconds || Math.abs(localDurationSeconds - durationSeconds) > 10) {
+      log("Detected duration change", { old: localDurationSeconds, new: durationSeconds });
+      localDurationSeconds = durationSeconds;
+    }
+  }
+
   localPositionSeconds = timeSeconds;
   localPaused = paused;
 
