@@ -167,3 +167,65 @@ button:active {
   height: auto;
   margin: 0 auto;
 }
+
+/* Password Field Styles */
+.mt-password-container {
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mt-password-container label {
+  display: block;
+  font-size: 13px;
+  color: #ccc;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.mt-password-wrapper {
+  display: flex;
+  gap: 6px;
+}
+
+.mt-password-wrapper input {
+  flex: 1;
+  background: #222;
+  border: 1px solid #444;
+  color: #fff;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.mt-password-wrapper input:focus {
+  outline: none;
+  border-color: #e50914;
+}
+
+.mt-password-wrapper button {
+  background: #333;
+  border: 1px solid #444;
+  color: #fff;
+  cursor: pointer;
+  padding: 0 10px;
+  border-radius: 4px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+}
+
+.mt-password-wrapper button:hover {
+  background: #444;
+  transform: none;
+}
+
+.mt-hint {
+  font-size: 11px;
+  color: #888;
+  margin-top: 4px;
+}

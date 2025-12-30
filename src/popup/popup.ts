@@ -1,4 +1,5 @@
 import { runNatSelfTest, formatNatPopupSummary } from "../utils/natTest";
+import { encryptMessage, decryptMessage } from "../utils/crypto";
 
 
 console.log("[Popup] Loaded");
@@ -25,6 +26,9 @@ const pasteAnswerBtn = document.getElementById("btn-paste-answer") as HTMLButton
 const pasteIncomingOfferBtn = document.getElementById("btn-paste-incoming-offer") as HTMLButtonElement | null;
 const copyAnswerForPeerBtn = document.getElementById("btn-copy-answer-for-peer") as HTMLButtonElement | null;
 
+const passwordInput = document.getElementById("password-input") as HTMLInputElement;
+const togglePasswordBtn = document.getElementById("btn-toggle-password") as HTMLButtonElement;
+
 type ActiveStep = "choice" | "create" | "join";
 
 type SignalingContext = "create-offer" | "apply-answer" | "generate-answer";
@@ -35,6 +39,7 @@ type PopupStorageState = {
   mt_incomingOffer: string;
   mt_answerForPeer: string;
   mt_activeStep: ActiveStep;
+  mt_password?: string;
 };
 
 
@@ -109,6 +114,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       "mt_incomingOffer",
       "mt_answerForPeer",
       "mt_activeStep",
+      "mt_password",
     ]);
   }
 });
@@ -123,6 +129,7 @@ chrome.storage.local.get(
     mt_incomingOffer: "",
     mt_answerForPeer: "",
     mt_activeStep: "choice" as ActiveStep,
+    mt_password: "",
   },
   (raw) => {
     const data = raw as PopupStorageState;
@@ -134,9 +141,28 @@ chrome.storage.local.get(
 
     showStep(data.mt_activeStep || "choice");
     statusEl.innerText = "Ready";
+
+    if (data.mt_password) {
+      passwordInput.value = data.mt_password;
+    }
   }
 );
 
+
+// ---- Gestione password ----
+passwordInput.addEventListener("input", () => {
+  chrome.storage.local.set({ mt_password: passwordInput.value });
+});
+
+togglePasswordBtn.onclick = () => {
+  if (passwordInput.type === "password") {
+    passwordInput.type = "text";
+    togglePasswordBtn.textContent = "🙈";
+  } else {
+    passwordInput.type = "password";
+    togglePasswordBtn.textContent = "👁️";
+  }
+};
 
 
 // ---- Salva contenuto dei textarea su input ----
@@ -224,11 +250,20 @@ createBtn.onclick = () => {
     }
     console.log("[Popup] CREATE_SESSION resp:", res);
     if (res?.offer) {
-      // Mostra all'utente una versione offuscata (base64 URL-safe)
-      const encoded = encodeOfferForShare(res.offer);
-      offerEl.value = encoded;
-      chrome.storage.local.set({ mt_offer: encoded });
-      statusEl.innerText = "✅ Offer created. Copy and share it.";
+      // Codifica offerta
+      handleOutgoingMessage(res.offer, passwordInput.value.trim())
+        .then((encoded) => {
+          offerEl.value = encoded;
+          chrome.storage.local.set({ mt_offer: encoded });
+          const isEncrypted = !!passwordInput.value.trim();
+          statusEl.innerText = isEncrypted
+            ? "✅ Offer created (Encrypted). Copy and share it."
+            : "✅ Offer created. Copy and share it.";
+        })
+        .catch((err) => {
+          console.error("Encryption failed", err);
+          statusEl.innerText = "❌ Encryption failed: " + err.message;
+        });
     } else {
       handleSignalingError("create-offer", res);
     }
@@ -240,34 +275,35 @@ connectBtn.onclick = () => {
   const raw = answerEl.value.trim();
   if (!raw) return alert("Paste the answer first!");
 
-  // Prova a decodificare l'answer (formato offuscato).
-  // Se fallisce, usa la stringa così com'è (compatibilità con JSON puro).
-  let answerPayload: string = raw;
-  try {
-    const obj = decodeOfferFromShare(raw);
-    answerPayload = JSON.stringify(obj);
-  } catch {
-    // non è nel formato codificato, probabilmente JSON puro
+  // Logica di decrittazione e decodifica
+  handleIncomingMessage(raw, passwordInput.value.trim())
+    .then((answerPayload) => {
+      proceedToApplyAnswer(answerPayload);
+    })
+    .catch((err) => {
+      statusEl.innerText = "❌ " + err.message;
+    });
+
+  function proceedToApplyAnswer(answerPayload: string) {
+    console.log("[Popup] APPLY_ANSWER sent");
+    connectBtn.disabled = true;
+    statusEl.innerText = "⏳ Connecting…";
+
+    chrome.runtime.sendMessage({ type: "APPLY_ANSWER", answer: answerPayload }, (res) => {
+      connectBtn.disabled = false;
+
+      if (chrome.runtime.lastError) {
+        statusEl.innerText = `❌ Failed to apply answer: ${chrome.runtime.lastError.message}`;
+        return;
+      }
+      console.log("[Popup] APPLY_ANSWER resp:", res);
+      if (res?.ok) {
+        statusEl.innerText = "✅ Connected!";
+      } else {
+        handleSignalingError("apply-answer", res);
+      }
+    });
   }
-
-  console.log("[Popup] APPLY_ANSWER sent");
-  connectBtn.disabled = true;
-  statusEl.innerText = "⏳ Connecting…";
-
-  chrome.runtime.sendMessage({ type: "APPLY_ANSWER", answer: answerPayload }, (res) => {
-    connectBtn.disabled = false;
-
-    if (chrome.runtime.lastError) {
-      statusEl.innerText = `❌ Failed to apply answer: ${chrome.runtime.lastError.message}`;
-      return;
-    }
-    console.log("[Popup] APPLY_ANSWER resp:", res);
-    if (res?.ok) {
-      statusEl.innerText = "✅ Connected!";
-    } else {
-      handleSignalingError("apply-answer", res);
-    }
-  });
 };
 
 
@@ -275,43 +311,97 @@ genAnswerBtn.onclick = () => {
   const raw = incomingOfferEl.value.trim();
   if (!raw) return alert("Paste the offer first!");
 
-  // Prova a decodificare l'answer (formato offuscato).
-  // Se fallisce, usa la stringa così com'è (compatibilità con JSON puro).
-  let offerPayload: string = raw;
-  try {
-    const obj = decodeOfferFromShare(raw);
-    offerPayload = JSON.stringify(obj);
-  } catch {
-    // non è nel formato codificato, probabilmente JSON puro
+  // Logica di decrittazione e decodifica
+  handleIncomingMessage(raw, passwordInput.value.trim())
+    .then((offerPayload) => {
+      proceedToGenerateAnswer(offerPayload);
+    })
+    .catch((err) => {
+      statusEl.innerText = "❌ " + err.message;
+    });
+
+  function proceedToGenerateAnswer(offerPayload: string) {
+    console.log("[Popup] CONNECT_SESSION sent");
+    genAnswerBtn.disabled = true;
+    statusEl.innerText = "⏳ Generating answer…";
+
+    chrome.runtime.sendMessage({ type: "CONNECT_SESSION", offer: offerPayload }, (res) => {
+      genAnswerBtn.disabled = false;
+
+      if (chrome.runtime.lastError) {
+        statusEl.innerText = `❌ Failed to generate answer: ${chrome.runtime.lastError.message}`;
+        return;
+      }
+      console.log("[Popup] CONNECT_SESSION resp:", res);
+      if (res?.answer) {
+        // Codifica risposta
+        handleOutgoingMessage(res.answer, passwordInput.value.trim())
+          .then((encoded) => {
+            answerForPeerEl.value = encoded;
+            chrome.storage.local.set({ mt_answerForPeer: encoded });
+            const isEncrypted = !!passwordInput.value.trim();
+            statusEl.innerText = isEncrypted
+              ? "✅ Answer generated (Encrypted). Send it back."
+              : "✅ Answer generated. Send it back.";
+          })
+          .catch((err) => {
+            console.error("Encryption failed", err);
+            statusEl.innerText = "❌ Encryption failed: " + err.message;
+          });
+      } else {
+        handleSignalingError("generate-answer", res);
+      }
+    });
   }
-
-  console.log("[Popup] CONNECT_SESSION sent");
-  genAnswerBtn.disabled = true;
-  statusEl.innerText = "⏳ Generating answer…";
-
-  chrome.runtime.sendMessage({ type: "CONNECT_SESSION", offer: offerPayload }, (res) => {
-    genAnswerBtn.disabled = false;
-
-    if (chrome.runtime.lastError) {
-      statusEl.innerText = `❌ Failed to generate answer: ${chrome.runtime.lastError.message}`;
-      return;
-    }
-    console.log("[Popup] CONNECT_SESSION resp:", res);
-    if (res?.answer) {
-      // Mostra all'utente una versione offuscata dell'answer
-      const encoded = encodeOfferForShare(res.answer);
-      answerForPeerEl.value = encoded;
-      chrome.storage.local.set({ mt_answerForPeer: encoded });
-      statusEl.innerText = "✅ Answer generated. Send it back.";
-    } else {
-      handleSignalingError("generate-answer", res);
-    }
-  });
 };
 
 
 
-// ---- Utility encoding/decoding ----
+// ---- Gestione messaggi di handshake ----
+async function handleOutgoingMessage(obj: any, password: string): Promise<string> {
+  const json = JSON.stringify(obj);
+  if (password) {
+    // Codifica
+    return await encryptMessage(json, password);
+  } else {
+    // Legacy Base64
+    return encodeOfferForShare(obj);
+  }
+}
+
+
+async function handleIncomingMessage(raw: string, password: string): Promise<string> {
+  // 1. Try Decrypt if password is strictly provided
+  if (password) {
+    try {
+      const plaintext = await decryptMessage(raw, password);
+      // Validate JSON
+      JSON.parse(plaintext);
+      return plaintext;
+    } catch (e: any) {
+      // If failure, throw specific error
+      throw new Error(`Decryption failed: ${e.message}. Check your password.`);
+    }
+  }
+
+  // 2. Fallback: Try Legacy Decode
+  try {
+    const obj = decodeOfferFromShare(raw);
+    return JSON.stringify(obj);
+  } catch (e) {
+    // 3. Fallback: Raw JSON?
+    try {
+      JSON.parse(raw);
+      return raw;
+    } catch {
+      throw new Error("Invalid message format.");
+    }
+  }
+}
+
+
+
+// Old encoding/decoding utilities kept for legacy support
 function encodeOfferForShare(obj: any): string {
   const json = JSON.stringify(obj);
   const bytes = new TextEncoder().encode(json);

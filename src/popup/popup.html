@@ -21,6 +21,15 @@
 
     <!-- Step 0: scelta iniziale -->
     <div id="step-choice">
+      <div class="mt-password-container">
+        <label for="password-input">Secret Password (Recommended)</label>
+        <div class="mt-password-wrapper">
+          <input type="password" id="password-input" placeholder="e.g. popcorn" />
+          <button id="btn-toggle-password" type="button" aria-label="Show password">👁️</button>
+        </div>
+        <div class="mt-hint">If set, messages are encrypted. Share this password with your friend!</div>
+      </div>
+
       <button id="btn-test">🧪 Test Connection</button>
       <button id="choose-create">🎬 Create Session</button>
       <button id="choose-connect">🔗 Connect to Session</button>
