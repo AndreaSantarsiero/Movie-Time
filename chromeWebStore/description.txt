@@ -1,4 +1,4 @@
-⭐ Movie Time – Watch Netflix together, from anywhere  
+⭐ Movie Time – Watch Netflix and YouTube together, from anywhere  
 Enjoy your favourite movies and shows as if you were sitting next to each other with real-time synchronized playback and built-in video chat
 No accounts. No servers. No data collection. Just the two of you, sharing the moment
 
@@ -7,13 +7,13 @@ No accounts. No servers. No data collection. Just the two of you, sharing the mo
 1. For the best connection, use a home Wi-Fi network.  
    Mobile networks (4G/5G) and restrictive public/work Wi-Fi often block peer-to-peer traffic and may prevent the call from working correctly.
 
-2. Also remember: if you refresh the Netflix page or navigate to a different Netflix URL within the same tab, Movie Time fully resets.  
+2. Also remember: if you refresh the Netflix (or YouTube) page or navigate to a different URL within the same tab, Movie Time fully resets.  
    The call ends, the sync stops, and you'll need to recreate or rejoin the session from the beginning.  
-   You can freely switch to other browser tabs, just keep one Netflix tab and don’t refresh it!
+   You can freely switch to other browser tabs, just keep one Netflix (or YouTube) tab and don’t refresh it!
 
 
 🎬 How to get started  
-After installing the extension, simply open Netflix and click the Movie Time icon.  
+After installing the extension, simply open Netflix or YouTube and click the Movie Time icon.  
 A small popup will guide you to test your connection, create a session, or join an existing one.
 
 Creating a session  
@@ -30,13 +30,13 @@ Final step
 The person who created the session just needs to paste the answer they received and press “Connect”
 
 🎥 What happens next  
-Once connected, a floating overlay appears on your Netflix tab so you can see and hear each other while watching together.  
+Once connected, a floating overlay appears on your tab so you can see and hear each other while watching together.  
 You can drag it around the screen and resize it through the bottom-right corner.  
 You can also toggle your camera, microphone, and playback sync at any time.
 
 🔄 How synchronization works  
-Before enabling sync, both of you should open the same movie or episode on Netflix.  
-Then press the sync button: playback will instantly stay aligned for both of you.  
+Before enabling sync, both of you should open the same movie, episode or video.
+Then press the sync button: playback will instantly stay aligned for both of you.
 Press again at any time to disable synchronization.
 
 ❤️ Movie Time  
