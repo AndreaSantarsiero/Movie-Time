@@ -1,4 +1,4 @@
-import { VideoProvider } from "./VideoProvider";
+import { AbstractVideoProvider } from "./AbstractVideoProvider";
 
 
 
@@ -28,11 +28,12 @@ interface NetflixVideoPlayer {
  * Netflix Provider
  * Implementation based on direct API access and correct Ad/Intro handling logic
  */
-export class NetflixProvider implements VideoProvider {
+export class NetflixProvider extends AbstractVideoProvider {
 
     private skipObserver: MutationObserver | null = null;
 
     constructor() {
+        super();
         this.initSkipObserver();
     }
 
@@ -54,6 +55,21 @@ export class NetflixProvider implements VideoProvider {
             return null;
         }
     }
+
+
+    getContentInfo() {
+        // Netflix URL format: /watch/<id>
+        const match = location.pathname.match(/\/watch\/(\d+)/);
+        const contentId = match?.[1] ?? null;
+
+        const player = this.getPlayer();
+        const duration = player ? player.getDuration() / 1000 : 0;
+
+        const title = document.title?.trim() || "Netflix Video";
+
+        return { contentId, title, duration };
+    }
+
 
 
     /**
@@ -88,32 +104,6 @@ export class NetflixProvider implements VideoProvider {
     }
 
 
-
-    /**
-     * Video Element is ONLY used for finding the generic location/title if needed, 
-     * but we strictly avoid it for playback control
-     */
-    getVideoElement(): HTMLVideoElement | null {
-        // Not used for control logic anymore.
-        return document.querySelector("video");
-    }
-
-
-
-    getContentInfo() {
-        // Netflix URL format: /watch/<id>
-        const match = location.pathname.match(/\/watch\/(\d+)/);
-        const contentId = match?.[1] ?? null;
-
-        const player = this.getPlayer();
-        const duration = player ? player.getDuration() / 1000 : 0;
-
-        const title = document.title?.trim() || "Netflix Video";
-
-        return { contentId, title, duration };
-    }
-
-
     play(): void {
         const player = this.getPlayer();
         if (player) {
@@ -145,9 +135,8 @@ export class NetflixProvider implements VideoProvider {
 
     setPlaybackRate(rate: number): void {
         // Netflix API doesn't expose easy setPlaybackRate in the public/discovered methods easily.
-        // We can try to set it on the video tag as a fallback, but React might reset it.
-        // For now, we leave it as valid "best effort".
-        const video = document.querySelector("video");
+        // We can try to set it on the video tag as a fallback using the robust inherited method.
+        const video = this.getVideoElement();
         if (video) video.playbackRate = rate;
     }
 

@@ -1,4 +1,4 @@
-import { VideoProvider } from "../providers/VideoProvider";
+import { AbstractVideoProvider } from "../providers/AbstractVideoProvider";
 import { GenericProvider } from "../providers/GenericProvider";
 import { NetflixProvider } from "../providers/NetflixProvider";
 import { YouTubeProvider } from "../providers/YouTubeProvider";
@@ -9,7 +9,7 @@ import { ParamountProvider } from "../providers/ParamountProvider";
 
 
 
-const providers: VideoProvider[] = [
+const providers: AbstractVideoProvider[] = [
     new NetflixProvider(),
     new YouTubeProvider(),
     new PrimeVideoProvider(),
@@ -25,7 +25,7 @@ const providers: VideoProvider[] = [
  */
 export class ProviderManager {
 
-    private activeProvider: VideoProvider | null = null;
+    private activeProvider: AbstractVideoProvider | null = null;
     private genericProvider: GenericProvider = new GenericProvider();
 
 
@@ -47,7 +47,7 @@ export class ProviderManager {
     }
 
 
-    getProvider(): VideoProvider {
+    async getProvider(): Promise<AbstractVideoProvider> {
         if (!this.activeProvider) {
             this.selectProvider();
         }

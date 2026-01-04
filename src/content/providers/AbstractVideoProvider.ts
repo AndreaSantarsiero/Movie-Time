@@ -1,24 +1,43 @@
-import { VideoProvider } from "./VideoProvider";
-
-
-
 /**
- * Abstract implementation of VideoProvider with default methods
+ * Abstract implementation with default methods
  */
-export abstract class AbstractVideoProvider implements VideoProvider {
+export abstract class AbstractVideoProvider {
 
     private cachedVideo: HTMLVideoElement | null = null;
     private cacheTime: number = 0;
 
-
-    abstract get name(): string;
-
-    abstract isApplicable(): boolean;
-
     constructor() { }
 
 
+    /**
+     * Uniquely identifies the provider type
+     */
+    abstract get name(): string;
 
+
+    /**
+     * Determines if this provider can handle the current page
+     */
+    abstract isApplicable(): boolean;
+
+
+    /**
+     * Returns metadata about the current media
+     * - contentId: Used for room matching (must be consistent across peers)
+     * - title: Displayed in the UI
+     * - duration: Used for sync validation
+     */
+    abstract getContentInfo(): {
+        contentId: string | null;
+        title: string | null;
+        duration: number | null;
+    };
+
+
+
+    /** 
+     * Returns the underlying video element if available
+     */
     getVideoElement(): HTMLVideoElement | null {
         // Cache the best video for 2 seconds to avoid running heavy scoring every frame
         const now = Date.now();
@@ -84,12 +103,6 @@ export abstract class AbstractVideoProvider implements VideoProvider {
     }
 
 
-    abstract getContentInfo(): {
-        contentId: string | null;
-        title: string | null;
-        duration: number | null;
-    };
-
 
     /**
      * Default playback controls (can be overridden)
@@ -116,6 +129,7 @@ export abstract class AbstractVideoProvider implements VideoProvider {
         const video = this.getVideoElement();
         if (video) video.playbackRate = rate;
     }
+
 
 
     /**

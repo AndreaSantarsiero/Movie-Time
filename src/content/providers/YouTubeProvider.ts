@@ -1,4 +1,4 @@
-import { VideoProvider } from "./VideoProvider";
+import { AbstractVideoProvider } from "./AbstractVideoProvider";
 
 
 
@@ -16,7 +16,7 @@ interface YouTubePlayerAPI extends HTMLElement {
 
 
 
-export class YouTubeProvider implements VideoProvider {
+export class YouTubeProvider extends AbstractVideoProvider {
 
     get name(): string {
         return "youtube";
@@ -25,17 +25,6 @@ export class YouTubeProvider implements VideoProvider {
 
     isApplicable(): boolean {
         return window.location.hostname.includes("youtube.com") && !!this.getPlayer();
-    }
-
-
-    private getPlayer(): YouTubePlayerAPI | null {
-        return document.getElementById("movie_player") as unknown as YouTubePlayerAPI;
-    }
-
-
-    getVideoElement(): HTMLVideoElement | null {
-        // Not used for control, but potentially useful for generic fallbacks
-        return document.querySelector("video");
     }
 
 
@@ -54,6 +43,11 @@ export class YouTubeProvider implements VideoProvider {
         } catch (e) {
             return { contentId: null, title: "YouTube", duration: 0 };
         }
+    }
+
+
+    private getPlayer(): YouTubePlayerAPI | null {
+        return document.getElementById("movie_player") as unknown as YouTubePlayerAPI;
     }
 
 
@@ -79,7 +73,8 @@ export class YouTubeProvider implements VideoProvider {
 
 
     setPlaybackRate(rate: number): void {
-        const video = document.querySelector("video");
+        // Fallback to DOM element
+        const video = this.getVideoElement();
         if (video) video.playbackRate = rate;
     }
 
