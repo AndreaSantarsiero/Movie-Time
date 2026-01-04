@@ -17,11 +17,6 @@ export class PrimeVideoProvider extends AbstractVideoProvider {
     }
 
 
-    getVideoElement(): HTMLVideoElement | null {
-        return document.querySelector("video");
-    }
-
-
     getContentInfo() {
         const title = document.title;
         const duration = this.getDuration();

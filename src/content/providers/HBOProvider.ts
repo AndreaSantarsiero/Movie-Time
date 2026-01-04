@@ -14,11 +14,6 @@ export class HBOProvider extends AbstractVideoProvider {
     }
 
 
-    getVideoElement(): HTMLVideoElement | null {
-        return document.querySelector("video");
-    }
-
-
     getContentInfo() {
         return {
             contentId: location.pathname,
