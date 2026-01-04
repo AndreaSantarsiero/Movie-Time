@@ -2,10 +2,39 @@ import { VideoProvider } from "./VideoProvider";
 
 
 
+// Define the Netflix API types we expect
+interface NetflixPlayerAPI {
+    videoPlayer: {
+        getAllPlayerSessionIds: () => string[];
+        getVideoPlayerBySessionId: (id: string) => NetflixVideoPlayer;
+    }
+}
+
+
+interface NetflixVideoPlayer {
+    getDuration: () => number;
+    getCurrentTime: () => number;    // returns ms
+    getSegmentTime: () => number | null; // returns ms or null
+    play: () => void;
+    pause: () => void;
+    seek: (timeMs: number) => void;
+    isPaused: () => boolean;
+    getBusy: () => boolean; // often indicates buffering
+}
+
+
+
 /**
  * Netflix Provider
+ * Implementation based on direct API access and correct Ad/Intro handling logic
  */
 export class NetflixProvider implements VideoProvider {
+
+    private skipObserver: MutationObserver | null = null;
+
+    constructor() {
+        this.initSkipObserver();
+    }
 
     get name(): string {
         return "netflix";
@@ -18,36 +47,41 @@ export class NetflixProvider implements VideoProvider {
         );
     }
 
-    private getNetflixAPI() {
-        return (window as any).netflix?.appContext?.state?.playerApp?.getAPI?.();
+    private getNetflixAPI(): NetflixPlayerAPI | null {
+        try {
+            return (window as any).netflix?.appContext?.state?.playerApp?.getAPI?.() || null;
+        } catch (e) {
+            return null;
+        }
     }
 
 
-
-    /*
-     * Attempts to find the Netflix player session that matches the duration of the visible video element
+    /**
+     * Finds the correct player session.
+     * Priority:
+     * 1. Session with valid duration (> 0)
+     * 2. If multiple, heuristic based on duration/state could be added, 
+     *    but usually there is one main "watch" session.
      */
-    private getPlayer() {
-        const video = this.getVideoElement();
-        if (!video) return null;
-
+    private getPlayer(): NetflixVideoPlayer | null {
         const api = this.getNetflixAPI();
         if (!api || !api.videoPlayer) return null;
 
-        const sessionIds = api.videoPlayer.getAllPlayerSessionIds?.() || [];
+        try {
+            const sessionIds = api.videoPlayer.getAllPlayerSessionIds?.() || [];
 
-        // Iterate all sessions to find one matching the target video duration
-        for (const id of sessionIds) {
-            const p = api.videoPlayer.getVideoPlayerBySessionId(id);
-            if (!p) continue;
+            // Iterate all sessions to find the main one
+            for (const id of sessionIds) {
+                const p = api.videoPlayer.getVideoPlayerBySessionId(id);
+                if (!p) continue;
 
-            const durMs = p.getDuration();
-            if (!Number.isFinite(durMs)) continue;
-
-            // Check if durations match (within 2s tolerance to be safe)
-            if (Math.abs(durMs - video.duration * 1000) < 2000) {
-                return p;
+                const durMs = p.getDuration();
+                if (Number.isFinite(durMs) && durMs > 0) {
+                    return p;
+                }
             }
+        } catch (e) {
+            console.warn("[NetflixProvider] Error getting player session", e);
         }
 
         return null;
@@ -55,75 +89,24 @@ export class NetflixProvider implements VideoProvider {
 
 
 
+    /**
+     * Video Element is ONLY used for finding the generic location/title if needed, 
+     * but we strictly avoid it for playback control
+     */
     getVideoElement(): HTMLVideoElement | null {
-        const videos = Array.from(document.querySelectorAll("video"));
-        if (videos.length === 0) return null;
-        if (videos.length === 1) return videos[0];
-
-        // Scoring system to find the "Main" video
-        let bestVideo: HTMLVideoElement | null = null;
-        let bestScore = -1;
-
-        for (const v of videos) {
-            if (!v.isConnected) continue;
-            // Must have a source
-            if (!v.src && !v.currentSrc) continue;
-
-            let score = 0;
-
-            // 1. Dimensions (Max 50)
-            // Area relative to viewport
-            const viewportArea = window.innerWidth * window.innerHeight;
-            const rect = v.getBoundingClientRect();
-            const videoArea = rect.width * rect.height;
-            if (videoArea > 0 && viewportArea > 0) {
-                const coverage = videoArea / viewportArea;
-                // Cap at 50pts for > 50% coverage
-                score += Math.min(50, coverage * 100);
-            }
-
-            // 2. Duration (Max 30)
-            // Prefer long videos (movies) over short ones (trailers/previews)
-            const dur = v.duration;
-            if (isFinite(dur) && dur > 0) {
-                if (dur > 600) score += 30;
-                else if (dur > 120) score += 15;
-                else if (dur > 30) score += 5;
-            }
-
-            // 3. Audio (Max 10)
-            // Unmuted usually means user intent
-            if (!v.muted && v.volume > 0) {
-                score += 10;
-            }
-
-            // 4. Activity (Max 10)
-            // Playing videos are more likely to be the main content
-            if (!v.paused) {
-                score += 10;
-            }
-
-            if (score > bestScore) {
-                bestScore = score;
-                bestVideo = v;
-            }
-        }
-
-        return bestVideo;
+        // Not used for control logic anymore.
+        return document.querySelector("video");
     }
 
 
 
     getContentInfo() {
-        // Netflix: /watch/<id>
+        // Netflix URL format: /watch/<id>
         const match = location.pathname.match(/\/watch\/(\d+)/);
         const contentId = match?.[1] ?? null;
 
-        const video = this.getVideoElement();
-        const duration =
-            video && Number.isFinite(video.duration) && video.duration > 0
-                ? video.duration
-                : null;
+        const player = this.getPlayer();
+        const duration = player ? player.getDuration() / 1000 : 0;
 
         const title = document.title?.trim() || "Netflix Video";
 
@@ -135,9 +118,6 @@ export class NetflixProvider implements VideoProvider {
         const player = this.getPlayer();
         if (player) {
             player.play();
-        } else {
-            // Fallback to video element
-            this.getVideoElement()?.play();
         }
     }
 
@@ -146,8 +126,6 @@ export class NetflixProvider implements VideoProvider {
         const player = this.getPlayer();
         if (player) {
             player.pause();
-        } else {
-            this.getVideoElement()?.pause();
         }
     }
 
@@ -155,47 +133,114 @@ export class NetflixProvider implements VideoProvider {
     seek(timeSec: number): void {
         const player = this.getPlayer();
         if (player) {
+            // Check for ads before seeking
+            if (this.isAdPlaying()) {
+                console.log("[NetflixProvider] Ad playing, ignoring seek");
+                return;
+            }
             player.seek(timeSec * 1000);
-        } else {
-            const video = this.getVideoElement();
-            if (video) video.currentTime = timeSec;
         }
     }
 
 
     setPlaybackRate(rate: number): void {
-        // Netflix might not support API rate change easily, fallback to video element which usually works
-        const video = this.getVideoElement();
+        // Netflix API doesn't expose easy setPlaybackRate in the public/discovered methods easily.
+        // We can try to set it on the video tag as a fallback, but React might reset it.
+        // For now, we leave it as valid "best effort".
+        const video = document.querySelector("video");
         if (video) video.playbackRate = rate;
     }
 
 
     getTime(): number {
         const player = this.getPlayer();
-        if (player) {
-            return player.getCurrentTime() / 1000;
+        if (!player) return 0;
+
+        // If ad is playing, return 0 or hold position to avoid syncing ads
+        if (this.isAdPlaying()) {
+            return 0;
         }
-        const video = this.getVideoElement();
-        return video ? video.currentTime : 0;
+
+        // Preferred: getSegmentTime() which handles internal segmentation/buffer better
+        const segTime = player.getSegmentTime();
+        const rawTime = (typeof segTime === 'number') ? segTime : player.getCurrentTime();
+
+        return rawTime / 1000;
     }
 
 
     getDuration(): number {
         const player = this.getPlayer();
-        if (player) {
-            return player.getDuration() / 1000;
-        }
-        const video = this.getVideoElement();
-        return video ? video.duration : 0;
+        return player ? player.getDuration() / 1000 : 0;
     }
 
 
     isPaused(): boolean {
         const player = this.getPlayer();
-        if (player) {
-            return player.isPaused();
+        if (!player) return true;
+
+        // If ad is playing, consider it "playing" locally, but for sync purposes 
+        // we might want to mask it? For complexity, we just report true state.
+        return player.isPaused();
+    }
+
+
+    isBuffering(): boolean {
+        const player = this.getPlayer();
+        return player ? (player.getBusy() === true) : false;
+    }
+
+
+
+    /**
+     * Ad & Skip Handling
+     */
+    private isAdPlaying(): boolean {
+        // Netflix doesn't have traditional pre-rolls in all regions/tiers.
+        // However, we can detect "Ad Breaks" if visible via UI classes or API.
+
+        // Method 1: Check for "Ad" UI elements
+        if (document.querySelector(".ad-interrupting")) {
+            return true;
         }
-        const video = this.getVideoElement();
-        return video ? video.paused : true;
+
+        // Method 2: Check API "postPlay" or similar states if needed (omitted for simplicity unless verified)
+
+        return false;
+    }
+
+
+    private initSkipObserver() {
+        if (this.skipObserver) return;
+
+        this.skipObserver = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                if (m.addedNodes.length > 0) {
+                    this.trySkipButtons();
+                }
+            }
+        });
+
+        this.skipObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+
+    private trySkipButtons() {
+        // Selectors for various "Skip" buttons on Netflix
+        const selectors = [
+            ".skip-credits > a",
+            ".button-nfplayerSkipIntro",
+            "[data-uia='player-skip-intro']",
+            "[data-uia='player-skip-recap']",
+            ".nf-flat-button.nf-flat-button-primary.nf-flat-button-uppercase" // generic fallback often used
+        ];
+
+        for (const sel of selectors) {
+            const btn = document.querySelector(sel);
+            if (btn instanceof HTMLElement) {
+                console.log("[NetflixProvider] Clicking skip button:", sel);
+                btn.click();
+            }
+        }
     }
 }

@@ -40,4 +40,5 @@ export interface VideoProvider {
     getTime(): number;
     getDuration(): number;
     isPaused(): boolean;
+    isBuffering(): boolean;
 }

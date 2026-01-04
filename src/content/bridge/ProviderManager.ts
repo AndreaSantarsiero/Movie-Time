@@ -1,12 +1,21 @@
 import { VideoProvider } from "../providers/VideoProvider";
 import { GenericProvider } from "../providers/GenericProvider";
 import { NetflixProvider } from "../providers/NetflixProvider";
+import { YouTubeProvider } from "../providers/YouTubeProvider";
+import { PrimeVideoProvider } from "../providers/PrimeVideoProvider";
+import { DisneyProvider } from "../providers/DisneyProvider";
+import { HBOProvider } from "../providers/HBOProvider";
+import { ParamountProvider } from "../providers/ParamountProvider";
 
 
 
 const providers: VideoProvider[] = [
     new NetflixProvider(),
-    // Add other specific providers here e.g. new YouTubeProvider()
+    new YouTubeProvider(),
+    new PrimeVideoProvider(),
+    new DisneyProvider(),
+    new HBOProvider(),
+    new ParamountProvider(),
 ];
 
 
