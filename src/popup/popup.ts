@@ -81,7 +81,7 @@ function handleSignalingError(context: SignalingContext, res: any) {
     baseMessage = "Failed to generate answer.";
   }
 
-  const detail = hint ?? "Please make sure you have a single Netflix tab open on the title you want to sync, then try again.";
+  const detail = hint ?? "Please make sure you have a single video tab open on the title you want to sync, then try again.";
   const fullMessage = `${baseMessage}\n${detail}`;
 
   alert(`❌ ${fullMessage}`);

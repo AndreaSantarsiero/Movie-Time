@@ -44,5 +44,31 @@ export class PrimeVideoProvider extends AbstractVideoProvider {
     }
 
 
-    // Default seek/isBuffering from AbstractVideoProvider work on video element
+    seek(timeSec: number): void {
+        const video = this.getVideoElement();
+        if (video) {
+            video.currentTime = timeSec;
+            // Force UI update for React/Custom players
+            video.dispatchEvent(new Event('timeupdate', { bubbles: true }));
+            video.dispatchEvent(new Event('seeking', { bubbles: true }));
+            video.dispatchEvent(new Event('seeked', { bubbles: true }));
+        }
+    }
+
+
+    isAdPlaying(): boolean {
+
+        const adIndicators = [
+            ".atvwebplayersdk-ad-timer",      // Common timer
+            ".fu4rd6c",                       // Obfuscated class seen in some regions
+            "[data-testid='ad-overlay']",
+            ".ad-counter"
+        ];
+
+        for (const sel of adIndicators) {
+            if (document.querySelector(sel)) return true;
+        }
+
+        return false;
+    }
 }

@@ -9,7 +9,7 @@ const POPUP_STATE_KEYS = [
   "mt_activeStep",
 ];
 
-// Tab Netflix corrente associata alla sessione di Movie Time
+// Tab video corrente associata alla sessione di Movie Time
 let currentSessionTabId: number | null = null;
 
 

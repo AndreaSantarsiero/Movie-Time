@@ -1,11 +1,11 @@
 export function log(...args: any[]) {
-  console.log("[netflix-sync]", ...args);
+  console.log("[video-sync]", ...args);
 }
 
 export function warn(...args: any[]) {
-  console.warn("[netflix-sync]", ...args);
+  console.warn("[video-sync]", ...args);
 }
 
 export function error(...args: any[]) {
-  console.error("[netflix-sync]", ...args);
+  console.error("[video-sync]", ...args);
 }
