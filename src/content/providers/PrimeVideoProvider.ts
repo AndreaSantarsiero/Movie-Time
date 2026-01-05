@@ -25,21 +25,15 @@ export class PrimeVideoProvider extends AbstractVideoProvider {
 
 
     play(): void {
-        super.play();
-        // Fallback: Click the UI button
         if (this.isPaused()) {
-            const btn = document.querySelector(".atvwebplayersdk-playpause-button");
-            if (btn instanceof HTMLElement) btn.click();
+            super.play();
         }
     }
 
 
     pause(): void {
-        super.pause();
-        // Fallback: Click UI
         if (!this.isPaused()) {
-            const btn = document.querySelector(".atvwebplayersdk-playpause-button");
-            if (btn instanceof HTMLElement) btn.click();
+            super.pause();
         }
     }
 
