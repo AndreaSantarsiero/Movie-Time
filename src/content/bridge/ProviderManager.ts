@@ -6,6 +6,9 @@ import { PrimeVideoProvider } from "../providers/PrimeVideoProvider";
 import { DisneyProvider } from "../providers/DisneyProvider";
 import { HBOProvider } from "../providers/HBOProvider";
 import { ParamountProvider } from "../providers/ParamountProvider";
+import { CrunchyrollProvider } from "../providers/CrunchyrollProvider";
+import { HuluProvider } from "../providers/HuluProvider";
+import { StreamingPlatformProvider } from "../providers/StreamingPlatformProvider";
 
 
 
@@ -16,6 +19,9 @@ const providers: AbstractVideoProvider[] = [
     new DisneyProvider(),
     new HBOProvider(),
     new ParamountProvider(),
+    new CrunchyrollProvider(),
+    new HuluProvider(),
+    new StreamingPlatformProvider(),
 ];
 
 

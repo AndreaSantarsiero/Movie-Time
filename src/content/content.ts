@@ -1,9 +1,11 @@
 import { RTCLink, getSingletonRTC, waitForLocalStream, onRTCConnected, onCallClosed } from "./webrtc";
 import { setupVideoSync } from "./videoSync";
 import { createOverlay, startOverlayVideoChat } from "./overlay";
+import { ProviderManager } from "./bridge/ProviderManager";
 
 let __relocationSetupDone = false;
 let __overlayHiddenInitially = false;
+const providerManager = new ProviderManager();
 
 console.log("[Content] Loaded start");
 
@@ -30,7 +32,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return; // ignoriamo altri messaggi qui
   }
 
-  console.log("[Content] Message from BG (early handler):", msg);
+  const provider = providerManager.getProvider();
+
+  // Generic/Streaming providers: Must have an actual video element to be worth syncing
+  if (["generic", "streaming_platform"].includes(provider.name)) {
+    if (!provider.getVideoElement()) {
+      return;
+    }
+  }
+
+  // Specific providers: Reliance on isApplicable() is usually enough
+  if (provider.name === "generic" && !provider.isApplicable()) {
+    return;
+  }
+
+  console.log("[Content] Message from BG (early handler):", msg, "Provider:", provider.name);
+
 
   (async () => {
     try {
@@ -199,7 +216,7 @@ onCallClosed(() => {
   if (overlayEl && overlayEl.isConnected) {
     try {
       overlayEl.remove();
-    } catch {}
+    } catch { }
   }
 
   // chiudi PeerConnection e ferma i media
@@ -207,16 +224,16 @@ onCallClosed(() => {
     const rtc = getSingletonRTC();
     if (rtc && rtc.pc) {
       rtc.pc.getSenders().forEach((s) => {
-        try { s.track?.stop(); } catch {}
+        try { s.track?.stop(); } catch { }
       });
       rtc.pc.close();
     }
-  } catch {}
+  } catch { }
 
   // reset integrale dello stato dell'estensione, come su reload tab
   try {
     chrome.runtime.sendMessage({ type: "RESET_STATE" });
-  } catch {}
+  } catch { }
 });
 
 
