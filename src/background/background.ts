@@ -130,12 +130,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 
 // --- Reset stato popup quando la pagina viene ricaricata ---
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // status: "loading" viene emesso all'inizio di un reload / navigazione
   if (changeInfo.status === "loading") {
-    const url = tab.url || "";
 
-    // Se è la tab di sessione, resettiamo anche lo stato di sessione
+    // Controlliamo se la tab ricaricata è quella di sessione
     if (tabId === currentSessionTabId) {
       console.log("[BG] Session tab reloading, clearing session and popup state");
       currentSessionTabId = null;
