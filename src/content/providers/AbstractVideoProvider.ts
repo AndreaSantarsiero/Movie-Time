@@ -168,4 +168,31 @@ export abstract class AbstractVideoProvider {
     isAdPlaying(): boolean {
         return false;
     }
+
+
+    /**
+     * Helper to check if an element is truly visible (not just present in DOM)
+     * Useful for detecting Ad UI elements that might be just hidden but not removed
+     */
+    protected isVisible(el: Element | null): boolean {
+        if (!el) return false;
+        if (!(el instanceof HTMLElement)) return false;
+
+        // 1. Basic check: offsetParent is null if display: none
+        if (el.offsetParent === null && el.style.position !== 'fixed') {
+            return false;
+        }
+
+        // 2. Computed style for visibility and opacity
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none') return false;
+        if (style.visibility === 'hidden') return false;
+        if (parseFloat(style.opacity) === 0) return false;
+
+        // 3. Dimensions
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+
+        return true;
+    }
 }

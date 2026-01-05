@@ -197,7 +197,8 @@ export class NetflixProvider extends AbstractVideoProvider {
      */
     isAdPlaying(): boolean {
         // Keep checking for Ad UI elements
-        if (document.querySelector(".ad-interrupting")) {
+        const adEl = document.querySelector(".ad-interrupting");
+        if (this.isVisible(adEl)) {
             return true;
         }
         return false;

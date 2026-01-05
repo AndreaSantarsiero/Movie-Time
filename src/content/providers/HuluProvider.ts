@@ -32,7 +32,7 @@ export class HuluProvider extends AbstractVideoProvider {
         const adContainer = document.querySelector("div[class*='AdContainer']");
         const adOverlay = document.querySelector(".ad-overlay");
 
-        if (adCountdown || adContainer || adOverlay) {
+        if (this.isVisible(adCountdown) || this.isVisible(adContainer) || this.isVisible(adOverlay)) {
             return true;
         }
 

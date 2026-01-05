@@ -39,7 +39,7 @@ export class StreamingPlatformProvider extends AbstractVideoProvider {
         ];
 
         for (const sel of adSelectors) {
-            if (document.querySelector(sel)) return true;
+            if (this.isVisible(document.querySelector(sel))) return true;
         }
 
         return false;

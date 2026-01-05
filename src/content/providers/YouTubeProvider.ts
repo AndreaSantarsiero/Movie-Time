@@ -121,7 +121,8 @@ export class YouTubeProvider extends AbstractVideoProvider {
         } catch (e) { }
 
         // DOM Check
-        if (document.querySelector(".ad-interrupting")) {
+        const adEl = document.querySelector(".ad-interrupting");
+        if (this.isVisible(adEl)) {
             return true;
         }
 

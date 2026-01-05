@@ -66,7 +66,7 @@ export class PrimeVideoProvider extends AbstractVideoProvider {
         ];
 
         for (const sel of adIndicators) {
-            if (document.querySelector(sel)) return true;
+            if (this.isVisible(document.querySelector(sel))) return true;
         }
 
         return false;

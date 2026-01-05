@@ -34,7 +34,7 @@ export class CrunchyrollProvider extends AbstractVideoProvider {
         const adMessage = document.querySelector(".ad-message");
         const adCountdown = document.querySelector("[data-testid='ad-countdown']");
 
-        if (adOverlay || adMessage || adCountdown) {
+        if (this.isVisible(adOverlay) || this.isVisible(adMessage) || this.isVisible(adCountdown)) {
             return true;
         }
 
