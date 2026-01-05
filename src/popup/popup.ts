@@ -25,6 +25,10 @@ const pasteAnswerBtn = document.getElementById("btn-paste-answer") as HTMLButton
 const pasteIncomingOfferBtn = document.getElementById("btn-paste-incoming-offer") as HTMLButtonElement | null;
 const copyAnswerForPeerBtn = document.getElementById("btn-copy-answer-for-peer") as HTMLButtonElement | null;
 
+const errorModal = document.getElementById("error-modal") as HTMLElement;
+const errorModalText = document.getElementById("error-modal-text") as HTMLElement;
+const errorModalOk = document.getElementById("error-modal-ok") as HTMLButtonElement;
+
 type ActiveStep = "choice" | "create" | "join";
 
 type SignalingContext = "create-offer" | "apply-answer" | "generate-answer";
@@ -65,7 +69,21 @@ function showStep(step: ActiveStep) {
 }
 
 
-// Mostra gli errori di signaling in un popup (alert) con messaggi user-friendly
+
+function showModal(title: string, message: string) {
+  const titleEl = errorModal.querySelector(".mt-modal-title");
+  if (titleEl) titleEl.textContent = title;
+
+  errorModalText.textContent = message;
+  errorModal.style.display = "flex";
+}
+
+errorModalOk.onclick = () => {
+  errorModal.style.display = "none";
+};
+
+
+// Mostra gli errori di signaling in un popup (modal) con messaggi user-friendly
 function handleSignalingError(context: SignalingContext, res: any) {
   const rawError = res?.error;
   const hint = typeof res?.hint === "string" ? res.hint : undefined;
@@ -84,7 +102,7 @@ function handleSignalingError(context: SignalingContext, res: any) {
   const detail = hint ?? "Please make sure you have a single video tab open on the title you want to sync, then try again.";
   const fullMessage = `${baseMessage}\n${detail}`;
 
-  alert(`❌ ${fullMessage}`);
+  showModal("Error", fullMessage);
   statusEl.innerText = `❌ ${baseMessage}`;
 }
 
@@ -238,7 +256,10 @@ createBtn.onclick = () => {
 
 connectBtn.onclick = () => {
   const raw = answerEl.value.trim();
-  if (!raw) return alert("Paste the answer first!");
+  if (!raw) {
+    showModal("Warning", "Paste the answer first!");
+    return;
+  }
 
   // Prova a decodificare l'answer (formato offuscato).
   // Se fallisce, usa la stringa così com'è (compatibilità con JSON puro).
@@ -273,7 +294,10 @@ connectBtn.onclick = () => {
 
 genAnswerBtn.onclick = () => {
   const raw = incomingOfferEl.value.trim();
-  if (!raw) return alert("Paste the offer first!");
+  if (!raw) {
+    showModal("Warning", "Paste the offer first!");
+    return;
+  }
 
   // Prova a decodificare l'answer (formato offuscato).
   // Se fallisce, usa la stringa così com'è (compatibilità con JSON puro).

@@ -80,7 +80,7 @@ button:active {
   left: 18px;
   top: 12px;
   transform: none;
-  z-index: 10; 
+  z-index: 10;
 
   width: auto;
   padding: 4px 8px;
@@ -166,4 +166,67 @@ button:active {
   width: 100%;
   height: auto;
   margin: 0 auto;
+}
+
+
+/* Modal Overlay */
+.mt-modal {
+  position: fixed;
+  z-index: 100;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  /* Black backdrop */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Modal Box */
+.mt-modal-content {
+  background-color: #1f1f1f;
+  margin: 15%;
+  /* 15% from top and centered */
+  padding: 20px;
+  border: 1px solid #e50914;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 300px;
+  text-align: center;
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.5);
+  animation: modalFadeIn 0.2s;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.mt-modal-title {
+  color: #e50914;
+  font-size: 18px;
+  margin-top: 0;
+}
+
+#error-modal-text {
+  color: #ddd;
+  font-size: 14px;
+  margin: 15px 0 20px 0;
+  white-space: pre-wrap;
+  /* Preserve formatting/newlines */
+  line-height: 1.4;
+}
+
+#error-modal-ok {
+  width: auto;
+  min-width: 80px;
 }
