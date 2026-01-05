@@ -68,7 +68,8 @@ setInterval(() => {
       type: "TICK",
       time: timeSec,
       paused: paused,
-      duration: durationSec
+      duration: durationSec,
+      isAd: provider.isAdPlaying()
     },
     "*"
   );

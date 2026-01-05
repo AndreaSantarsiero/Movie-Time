@@ -90,7 +90,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           console.error("[BG] Content not ready on session tab", tabId);
           sendResponse({
             error: "CONTENT_NOT_READY",
-            hint: "Make sure the Netflix page is loaded, then reload the page and try again.",
+            hint: "Make sure the video page is loaded, then reload it and try again.",
           });
           return;
         }
@@ -115,10 +115,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
 
-  // --- Registrazione tab Netflix ---
+  // --- Registrazione tab ---
   if (msg?.type === "REGISTER_TAB") {
     if (sender.tab?.id != null) {
-      console.log("[BG] REGISTER_TAB from Netflix tab", sender.tab.id);
+      console.log("[BG] REGISTER_TAB from video tab", sender.tab.id);
     } else {
       console.log("[BG] REGISTER_TAB from unknown tab");
     }
@@ -137,14 +137,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
     // Se è la tab di sessione, resettiamo anche lo stato di sessione
     if (tabId === currentSessionTabId) {
-      console.log("[BG] Session Netflix tab reloading, clearing session and popup state");
+      console.log("[BG] Session tab reloading, clearing session and popup state");
       currentSessionTabId = null;
-      chrome.storage.local.remove(POPUP_STATE_KEYS);
-    }
-
-    // opzionale: limita ai domini Netflix (comportamento originale)
-    if (url.includes("netflix.com")) {
-      console.log("[BG] Page reload on Netflix tab, clearing popup state");
       chrome.storage.local.remove(POPUP_STATE_KEYS);
     }
   }
@@ -155,7 +149,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // --- Reset stato sessione quando la tab viene chiusa ---
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === currentSessionTabId) {
-    console.log("[BG] Session Netflix tab closed, clearing session and popup state");
+    console.log("[BG] Session tab closed, clearing session and popup state");
     currentSessionTabId = null;
     chrome.storage.local.remove(POPUP_STATE_KEYS);
   }

@@ -109,7 +109,7 @@ export class YouTubeProvider extends AbstractVideoProvider {
     }
 
 
-    private isAdPlaying(): boolean {
+    isAdPlaying(): boolean {
         const player = this.getPlayer();
         if (!player) return false;
 

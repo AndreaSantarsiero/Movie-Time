@@ -184,7 +184,7 @@ export class NetflixProvider extends AbstractVideoProvider {
     /**
      * Ad & Skip Handling
      */
-    private isAdPlaying(): boolean {
+    isAdPlaying(): boolean {
         // Netflix doesn't have traditional pre-rolls in all regions/tiers.
         // However, we can detect "Ad Breaks" if visible via UI classes or API.
 

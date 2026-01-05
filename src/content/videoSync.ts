@@ -226,7 +226,7 @@ function setupPageBridge() {
     }
 
     if (data.type === "TICK") {
-      handleLocalTick(Number(data.time) || 0, !!data.paused, Number(data.duration) || 0);
+      handleLocalTick(Number(data.time) || 0, !!data.paused, Number(data.duration) || 0, !!data.isAd);
       return;
     }
   });
@@ -234,7 +234,53 @@ function setupPageBridge() {
 
 
 
-function handleLocalTick(timeSeconds: number, paused: boolean, durationSeconds?: number) {
+
+let localIsAd = false;
+
+function handleLocalTick(timeSeconds: number, paused: boolean, durationSeconds: number, isAd: boolean = false) {
+
+  // ---- Ad Handling Logic ----
+  if (isAd && !localIsAd) {
+    // Enter Ad -> Pause everyone
+    log("Entered Ad Break -> Sending PAUSE to room");
+    const now = nowMs();
+    const msg: ManualStateMessage = {
+      type: "MANUAL_STATE",
+      time: localPositionSeconds,
+      paused: true,
+      sentAt: now,
+    };
+    sendSync(msg);
+  }
+
+  if (isAd) {
+    // During Ad -> Ignore everything
+    localIsAd = true;
+    return;
+  }
+
+  if (!isAd && localIsAd) {
+    // Exit Ad -> Stay Paused
+    log("Exited Ad Break -> STAYING PAUSED");
+    localIsAd = false;
+
+    // Force local state to match what we want (paused)
+    const now = nowMs();
+    const msg: ManualStateMessage = {
+      type: "MANUAL_STATE",
+      time: timeSeconds,
+      paused: true,
+      sentAt: now,
+    };
+    sendSync(msg);
+
+    // Ideally we also force local pause if it's playing
+    if (!paused) {
+      postToPage({ type: "PAUSE" });
+    }
+  }
+
+
   // Se la durata del video è cambiata, aggiorniamola subito
   if (
     typeof durationSeconds === "number" &&

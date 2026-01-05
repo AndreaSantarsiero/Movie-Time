@@ -159,4 +159,13 @@ export abstract class AbstractVideoProvider {
         // HAVE_CURRENT_DATA (2) or less is buffering/loading
         return video ? video.readyState < 3 : false;
     }
+
+
+    /**
+     * Determines if an ad is currently playing
+     * If true, the sync engine will pause other peers and ignore updates
+     */
+    isAdPlaying(): boolean {
+        return false;
+    }
 }
