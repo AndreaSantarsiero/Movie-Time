@@ -24,7 +24,7 @@ export class YouTubeProvider extends AbstractVideoProvider {
 
 
     isApplicable(): boolean {
-        return window.location.hostname.includes("youtube.com") && !!this.getPlayer();
+        return window.location.hostname.includes("youtube.com");
     }
 
 

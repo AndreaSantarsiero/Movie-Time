@@ -437,20 +437,13 @@ function tryEstablishSync() {
     localDur > 0 &&
     remoteDur > 0
   ) {
-    const relDiff =
-      Math.abs(localDur - remoteDur) / Math.max(localDur, remoteDur);
+    const relDiff = Math.abs(localDur - remoteDur) / Math.max(localDur, remoteDur);
     if (relDiff > syncConfig.maxDurationDeltaRatio) {
-      compatible = "no";
-      log("Media duration mismatch, cannot sync", { localDur, remoteDur, relDiff });
-      emitUi();
-      return;
+      log("Media duration mismatch, but proceeding (loose mode)", { localDur, remoteDur, relDiff });
     }
   }
 
   compatible = "yes";
-
-  const localTs = localActivation.activationTimestamp;
-  const remoteTs = remoteActivation.activationTimestamp;
 
   let newRole: SyncRole;
   newRole = myPeerId < remotePeerId ? "leader" : "follower";

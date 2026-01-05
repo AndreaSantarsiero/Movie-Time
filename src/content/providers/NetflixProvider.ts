@@ -26,7 +26,7 @@ interface NetflixVideoPlayer {
 
 /**
  * Netflix Provider
- * Implementation based on direct API access and correct Ad/Intro handling logic
+ * Hybrid Implementation: Uses Netflix API matched with DOM Video Element
  */
 export class NetflixProvider extends AbstractVideoProvider {
 
@@ -37,16 +37,16 @@ export class NetflixProvider extends AbstractVideoProvider {
         this.initSkipObserver();
     }
 
+
     get name(): string {
         return "netflix";
     }
 
+
     isApplicable(): boolean {
-        return (
-            window.location.hostname.includes("netflix.com") &&
-            (window as any).netflix?.appContext?.state?.playerApp?.getAPI?.() !== undefined
-        );
+        return window.location.hostname.includes("netflix.com");
     }
+
 
     private getNetflixAPI(): NetflixPlayerAPI | null {
         try {
@@ -62,8 +62,11 @@ export class NetflixProvider extends AbstractVideoProvider {
         const match = location.pathname.match(/\/watch\/(\d+)/);
         const contentId = match?.[1] ?? null;
 
-        const player = this.getPlayer();
-        const duration = player ? player.getDuration() / 1000 : 0;
+        // Prefer DOM duration as it drives the matching
+        const video = this.getVideoElement();
+        const duration = video && Number.isFinite(video.duration) && video.duration > 0
+            ? video.duration
+            : null;
 
         const title = document.title?.trim() || "Netflix Video";
 
@@ -73,31 +76,35 @@ export class NetflixProvider extends AbstractVideoProvider {
 
 
     /**
-     * Finds the correct player session.
-     * Priority:
-     * 1. Session with valid duration (> 0)
-     * 2. If multiple, heuristic based on duration/state could be added, 
-     *    but usually there is one main "watch" session.
+     * Attempts to find the Netflix player session that matches the duration of the visible video element
      */
     private getPlayer(): NetflixVideoPlayer | null {
+        // 1. Get the robustly scored DOM video
+        const video = this.getVideoElement();
+        if (!video) return null;
+
+        // 2. Get API
         const api = this.getNetflixAPI();
         if (!api || !api.videoPlayer) return null;
 
         try {
             const sessionIds = api.videoPlayer.getAllPlayerSessionIds?.() || [];
 
-            // Iterate all sessions to find the main one
+            // 3. Iterate all sessions to find one matching the target video duration
             for (const id of sessionIds) {
                 const p = api.videoPlayer.getVideoPlayerBySessionId(id);
                 if (!p) continue;
 
                 const durMs = p.getDuration();
-                if (Number.isFinite(durMs) && durMs > 0) {
+                if (!Number.isFinite(durMs)) continue;
+
+                // Check if durations match (within 2s tolerance)
+                if (Math.abs(durMs - video.duration * 1000) < 2000) {
                     return p;
                 }
             }
         } catch (e) {
-            console.warn("[NetflixProvider] Error getting player session", e);
+            console.warn("[NetflixProvider] Error getting matching player session", e);
         }
 
         return null;
@@ -108,6 +115,9 @@ export class NetflixProvider extends AbstractVideoProvider {
         const player = this.getPlayer();
         if (player) {
             player.play();
+        } else {
+            // Fallback
+            super.play();
         }
     }
 
@@ -116,6 +126,8 @@ export class NetflixProvider extends AbstractVideoProvider {
         const player = this.getPlayer();
         if (player) {
             player.pause();
+        } else {
+            super.pause();
         }
     }
 
@@ -129,54 +141,53 @@ export class NetflixProvider extends AbstractVideoProvider {
                 return;
             }
             player.seek(timeSec * 1000);
+        } else {
+            super.seek(timeSec);
         }
     }
 
 
     setPlaybackRate(rate: number): void {
-        // Netflix API doesn't expose easy setPlaybackRate in the public/discovered methods easily.
-        // We can try to set it on the video tag as a fallback using the robust inherited method.
-        const video = this.getVideoElement();
-        if (video) video.playbackRate = rate;
+        // Netflix API fallback to DOM
+        super.setPlaybackRate(rate);
     }
 
 
     getTime(): number {
         const player = this.getPlayer();
-        if (!player) return 0;
-
-        // If ad is playing, return 0 or hold position to avoid syncing ads
-        if (this.isAdPlaying()) {
-            return 0;
+        if (player) {
+            const segTime = player.getSegmentTime();
+            const rawTime = (typeof segTime === 'number') ? segTime : player.getCurrentTime();
+            return rawTime / 1000;
         }
-
-        // Preferred: getSegmentTime() which handles internal segmentation/buffer better
-        const segTime = player.getSegmentTime();
-        const rawTime = (typeof segTime === 'number') ? segTime : player.getCurrentTime();
-
-        return rawTime / 1000;
+        return super.getTime();
     }
 
 
     getDuration(): number {
         const player = this.getPlayer();
-        return player ? player.getDuration() / 1000 : 0;
+        if (player) {
+            return player.getDuration() / 1000;
+        }
+        return super.getDuration();
     }
 
 
     isPaused(): boolean {
         const player = this.getPlayer();
-        if (!player) return true;
-
-        // If ad is playing, consider it "playing" locally, but for sync purposes 
-        // we might want to mask it? For complexity, we just report true state.
-        return player.isPaused();
+        if (player) {
+            return player.isPaused();
+        }
+        return super.isPaused();
     }
 
 
     isBuffering(): boolean {
         const player = this.getPlayer();
-        return player ? (player.getBusy() === true) : false;
+        if (player) {
+            return player.getBusy() === true;
+        }
+        return super.isBuffering();
     }
 
 
@@ -185,16 +196,10 @@ export class NetflixProvider extends AbstractVideoProvider {
      * Ad & Skip Handling
      */
     isAdPlaying(): boolean {
-        // Netflix doesn't have traditional pre-rolls in all regions/tiers.
-        // However, we can detect "Ad Breaks" if visible via UI classes or API.
-
-        // Method 1: Check for "Ad" UI elements
+        // Keep checking for Ad UI elements
         if (document.querySelector(".ad-interrupting")) {
             return true;
         }
-
-        // Method 2: Check API "postPlay" or similar states if needed (omitted for simplicity unless verified)
-
         return false;
     }
 
@@ -215,13 +220,12 @@ export class NetflixProvider extends AbstractVideoProvider {
 
 
     private trySkipButtons() {
-        // Selectors for various "Skip" buttons on Netflix
         const selectors = [
             ".skip-credits > a",
             ".button-nfplayerSkipIntro",
             "[data-uia='player-skip-intro']",
             "[data-uia='player-skip-recap']",
-            ".nf-flat-button.nf-flat-button-primary.nf-flat-button-uppercase" // generic fallback often used
+            ".nf-flat-button.nf-flat-button-primary.nf-flat-button-uppercase"
         ];
 
         for (const sel of selectors) {
