@@ -47,7 +47,7 @@ export class ProviderManager {
     }
 
 
-    async getProvider(): Promise<AbstractVideoProvider> {
+    getProvider(): AbstractVideoProvider {
         if (!this.activeProvider) {
             this.selectProvider();
         }

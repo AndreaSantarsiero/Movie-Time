@@ -13,7 +13,7 @@ export class PrimeVideoProvider extends AbstractVideoProvider {
         return (
             window.location.hostname.includes("amazon.") ||
             window.location.hostname.includes("primevideo.")
-        ) && !!document.querySelector(".webPlayerSDKContainer");
+        );
     }
 
 
