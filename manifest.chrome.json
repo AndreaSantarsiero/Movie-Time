@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Movie Time",
   "short_name": "Movie Time",
-  "version": "1.4.0",
-  "description": "[FREE] Watch Netflix and YouTube together with real-time sync and built-in video chat",
+  "version": "1.4.1",
+  "description": "[FREE] Watch Netflix, YouTube, Prime Video & others together with real-time sync, video chat and emoji reactions",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
