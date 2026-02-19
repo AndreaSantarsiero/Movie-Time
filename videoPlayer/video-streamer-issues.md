@@ -243,6 +243,8 @@ This document lists the issues found while reviewing `video-streamer.py`, explai
   - Removed the `burn_sub = False` declaration and `burn_sub = True` assignment.
   - Subtitle filter logic is now cleaner with no unused variables.
 
+---
+
 ## Summary of priority fixes (recommended order)
 1. ✅ Fix audio/subtitle index mapping (DONE).
 2. ✅ Update README port mismatch (DONE).
@@ -265,6 +267,8 @@ This document lists the issues found while reviewing `video-streamer.py`, explai
 19. ✅ **Fix pause duration tracking (DONE)** — Issues #22, #23: `total_paused_duration` now accurately updated on pause/resume, position no longer drifts.
 20. ✅ **Remove unused variable (DONE)** — Issue #24: `burn_sub` removed from `_build_ffmpeg_cmd()`.
 21. ⏭️ Session state mutation race condition in `/control` (DEFERRED - single-client usage, not critical).
+
+---
 
 ## Next Steps (Optional/Advanced - Not Critical)
 

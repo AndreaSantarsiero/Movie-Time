@@ -27,8 +27,9 @@ def _validate_path(video_path):
     if not video_path:
         return False, None
     try:
-        # Resolve to absolute path and check it's within MEDIA_ROOT
-        abs_path = Path(video_path).resolve()
+        # Expand user (~) then resolve to absolute path and check it's within MEDIA_ROOT
+        expanded = os.path.expanduser(video_path)
+        abs_path = Path(expanded).resolve()
         media_root = Path(MEDIA_ROOT).resolve()
         # Ensure the path is within media_root
         abs_path.relative_to(media_root)

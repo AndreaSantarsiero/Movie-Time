@@ -47,7 +47,7 @@ Rationale: offloading decoding/transcoding to the backend enables playback of fo
 **3) GET /tracks?path={path}**
    - Purpose: return available audio and subtitle tracks for the file at `path`.
    - Parameters: 
-     - `path` (required): file path relative to `MEDIA_ROOT` (env var, defaults to home directory).
+     - `path` (required): file path. The frontend may provide an absolute path or a user-style path beginning with `~`; the backend expands `~` to the user's home directory and then validates the resolved absolute path is inside `MEDIA_ROOT` (env var, defaults to home directory). Requests for paths outside `MEDIA_ROOT` are rejected for security.
    - Operation: runs `ffprobe` and parses streams. Response JSON: `{ "audio": [...], "subtitles": [...] }`.
      - Each audio track: `{ "index": <int>, "codec": <string>, "language": <string>, "title": <string> }`
      - Each subtitle track: `{ "index": <int>, "codec": <string>, "language": <string>, "title": <string> }`
@@ -127,7 +127,7 @@ Rationale: offloading decoding/transcoding to the backend enables playback of fo
 **7) GET /stream?path={path}&session_id={session_id}**
    - Purpose: produce the media stream consumed by the browser.
    - Parameters:
-     - `path` (required): file path relative to `MEDIA_ROOT`.
+     - `path` (required): file path. The backend accepts absolute paths or paths beginning with `~`; it expands and resolves the path and enforces that the file resides inside `MEDIA_ROOT` to prevent directory traversal or access to sensitive files.
      - `session_id` (required): unique session identifier (no fallback).
    - Operation: builds an `ffmpeg` command using the current per-session state:
      - If `current_time` is set, passes `-ss {current_time}` to seek into the file.
