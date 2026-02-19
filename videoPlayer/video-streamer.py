@@ -116,7 +116,7 @@ def _run_ffprobe(video_path):
     """Return ffprobe JSON output for the file, or None on error."""
     try:
         cmd = [
-            'ffprobe', '-v', 'error', '-print_format', 'json', '-show_streams', video_path
+            'ffprobe', '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', video_path
         ]
         out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
         return json.loads(out)
@@ -147,6 +147,7 @@ def discover_tracks(video_path):
     subtitle_tracks = []
     audio_idx = 0
     subtitle_idx = 0
+    duration = None
     
     if info and 'streams' in info:
         for s in info['streams']:
@@ -172,10 +173,17 @@ def discover_tracks(video_path):
                 }
                 subtitle_tracks.append(entry)
                 subtitle_idx += 1
+        
+        # Extract duration from format info if available
+        if 'format' in info:
+            try:
+                duration = float(info['format'].get('duration'))
+            except (ValueError, TypeError):
+                duration = None
 
-    # Return actual discovered tracks (empty lists if none found)
+    # Return actual discovered tracks + duration
     # Frontend handles empty track lists gracefully
-    return {'audio': audio_tracks, 'subtitles': subtitle_tracks}
+    return {'audio': audio_tracks, 'subtitles': subtitle_tracks, 'duration': duration}
 
 
 

@@ -21,7 +21,7 @@ Rationale: offloading decoding/transcoding to the backend enables playback of fo
 
 ## Backend responsibilities
 - Manage per-session playback state (tracks, position, rate, pause status).
-- Inspect a media file and report available audio and subtitle tracks.
+- Inspect a media file and report available audio and subtitle tracks, along with total duration.
 - Accept and persist audio and subtitle selection from the frontend (per-session).
 - Accept playback control commands (play, pause, seek, set_rate) and update per-session state.
 - Track accurate playback position using wall-clock time with pause duration compensation.
@@ -45,14 +45,15 @@ Rationale: offloading decoding/transcoding to the backend enables playback of fo
 ### Track Discovery
 
 **3) GET /tracks?path={path}**
-   - Purpose: return available audio and subtitle tracks for the file at `path`.
+   - Purpose: return available audio and subtitle tracks for the file at `path`, including total duration.
    - Parameters: 
      - `path` (required): file path. The frontend may provide an absolute path or a user-style path beginning with `~`; the backend expands `~` to the user's home directory and then validates the resolved absolute path is inside `MEDIA_ROOT` (env var, defaults to home directory). Requests for paths outside `MEDIA_ROOT` are rejected for security.
-   - Operation: runs `ffprobe` and parses streams. Response JSON: `{ "audio": [...], "subtitles": [...] }`.
+   - Operation: runs `ffprobe` to extract format metadata (duration) and parse streams. Response JSON: `{ "audio": [...], "subtitles": [...], "duration": <float|null> }`.
      - Each audio track: `{ "index": <int>, "codec": <string>, "language": <string>, "title": <string> }`
      - Each subtitle track: `{ "index": <int>, "codec": <string>, "language": <string>, "title": <string> }`
      - Indices are relative to stream type (audio 0..N, subtitle 0..M), not global ffprobe indices.
-   - Fallback: if `ffprobe` fails or no tracks are present, returns `{ "audio": [], "subtitles": [] }` (empty lists).
+     - `duration`: total duration in seconds (float), or `null` if unknown. Frontend should use this as source of truth for seek bar calculations.
+   - Fallback: if `ffprobe` fails or no tracks are present, returns `{ "audio": [], "subtitles": [], "duration": null }` (empty lists, null duration).
    - Error responses:
      - 400: `{ "error": "'path' parameter is required" }` if path is missing.
      - 404: `{ "error": "Video not found or access denied" }` if path is invalid or outside `MEDIA_ROOT`.
