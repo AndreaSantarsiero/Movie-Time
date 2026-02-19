@@ -179,11 +179,19 @@ def discover_tracks(video_path):
                 audio_idx += 1
             elif kind == 'subtitle':
                 default_title = f"Subtitle {subtitle_idx} ({s.get('codec_name') or 'subtitle'})"
+                codec_name = s.get('codec_name')
+                # Determine if subtitle is text-based and convertible to WebVTT
+                text_like = False
+                if codec_name:
+                    lower = codec_name.lower()
+                    if any(k in lower for k in ('subrip', 'ass', 'webvtt', 'mov_text', 'srt')):
+                        text_like = True
                 entry = {
                     'index': subtitle_idx,  # stream-relative index for this subtitle stream
-                    'codec': s.get('codec_name'),
+                    'codec': codec_name,
                     'language': lang or 'und',
-                    'title': title or lang or default_title
+                    'title': title or lang or default_title,
+                    'is_text': text_like
                 }
                 subtitle_tracks.append(entry)
                 subtitle_idx += 1
@@ -387,7 +395,7 @@ def status():
 
 
 
-def _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx, audio_present=True):
+def _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx, audio_present=True, copy_mode=False, hwaccel=None):
     # Basic command; we'll transcode video to h264 and audio to aac for browser compatibility.
     cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error']
     # seek
@@ -427,15 +435,24 @@ def _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx, aud
         # no audio present: disable audio in output
         cmd += ['-an']
 
-    # codecs
-    cmd += ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23']
-    cmd += ['-c:a', 'aac', '-b:a', '128k']
+    # optionally add hwaccel
+    if hwaccel:
+        cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-hwaccel', hwaccel] + cmd[1:]
 
-    # filters
-    if vf_filters:
-        cmd += ['-vf', ','.join(vf_filters)]
-    if af_filters:
-        cmd += ['-af', ','.join(af_filters)]
+    # codecs: if copy_mode (input already compatible with browser), copy streams to reduce CPU
+    if copy_mode:
+        # when copying we must not set filters or rate transforms
+        cmd += ['-c:v', 'copy']
+        if audio_present:
+            cmd += ['-c:a', 'copy']
+    else:
+        cmd += ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23']
+        cmd += ['-c:a', 'aac', '-b:a', '192k']
+        # filters
+        if vf_filters:
+            cmd += ['-vf', ','.join(vf_filters)]
+        if af_filters:
+            cmd += ['-af', ','.join(af_filters)]
 
     # output to fragmented mp4 via pipe
     cmd += ['-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', 'pipe:1']
@@ -492,7 +509,25 @@ def generate_ffmpeg_stream(video_path, session_id, session_state):
     stderr_thread = None
 
     while True:
-        cmd = _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx, audio_present=audio_present)
+        # Determine whether we can stream by remuxing (copy) instead of re-encoding to reduce latency.
+        video_codec = None
+        audio_codec = None
+        for s in streams:
+            if s.get('codec_type') == 'video' and video_codec is None:
+                video_codec = s.get('codec_name')
+            if s.get('codec_type') == 'audio' and audio_codec is None:
+                audio_codec = s.get('codec_name')
+
+        # copy_mode only when codecs are already compatible and no rate change requested
+        copy_mode = False
+        if video_codec and audio_codec and rate == 1.0:
+            if video_codec.lower() in ('h264', 'mpeg4') and audio_codec.lower() in ('aac', 'mp3'):
+                copy_mode = True
+
+        # optional hwaccel from env
+        hwaccel = os.getenv('FFMPEG_HWACCEL')
+
+        cmd = _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx, audio_present=audio_present, copy_mode=copy_mode, hwaccel=hwaccel)
         logger.debug(f"ffmpeg command: {' '.join(cmd)}")
 
         try:
@@ -622,6 +657,78 @@ def stream():
     
     # Note: we stream as MP4 bytes produced by ffmpeg; browser must handle progressive mp4
     return Response(generate_ffmpeg_stream(abs_path, session_id, session_state), mimetype='video/mp4')
+
+
+@app.route('/subtitle', methods=['GET'])
+def subtitle():
+    """Extract subtitle stream as WebVTT and return it.
+
+    Query params: path, session_id, idx
+    """
+    video_path = request.args.get('path')
+    session_id = request.args.get('session_id')
+    idx = request.args.get('idx')
+
+    if not video_path:
+        return jsonify({'error': "'path' parameter is required"}), 400
+    is_valid, abs_path = _validate_path(video_path)
+    if not is_valid:
+        return jsonify({'error': 'Video not found or access denied'}), 404
+    if not session_id:
+        return jsonify({'error': 'session_id parameter is required'}), 400
+
+    # validate idx
+    try:
+        idx_i = int(idx)
+        if idx_i < 0:
+            raise ValueError()
+    except Exception:
+        return jsonify({'error': 'idx must be a non-negative integer'}), 400
+
+    # probe to ensure subtitle stream exists
+    info = _run_ffprobe(abs_path) or {}
+    streams = info.get('streams', [])
+    subtitle_count = sum(1 for s in streams if s.get('codec_type') == 'subtitle')
+    if idx_i >= subtitle_count:
+        return jsonify({'error': 'subtitle index out of range'}), 400
+
+    # build ffmpeg command to output webvtt to stdout
+    cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', abs_path, '-map', f'0:s:{idx_i}', '-f', 'webvtt', 'pipe:1']
+
+    def generate():
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except FileNotFoundError:
+            logger.error('ffmpeg not found for subtitle extraction')
+            yield b''
+            return
+        # drain stderr in thread to avoid blocking
+        def _drain_err(p):
+            try:
+                for line in iter(p.stderr.readline, b''):
+                    if not line:
+                        break
+                    logger.debug('[subtitle ffmpeg] %s', line.decode(errors='ignore').strip())
+            except Exception:
+                pass
+        t = threading.Thread(target=_drain_err, args=(proc,), daemon=True)
+        t.start()
+        try:
+            for chunk in iter(lambda: proc.stdout.read(8192), b''):
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+    return Response(generate(), mimetype='text/vtt')
 
 
 

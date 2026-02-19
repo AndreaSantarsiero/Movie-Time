@@ -273,6 +273,8 @@ const state = {
   isSeeking: false,
   lastStatusTime: 0
 };
+// indicates if a stream src has been attached to the video element
+state.isStreamAttached = false;
 // reconnect attempts for stream recovery
 state.reconnectAttempts = 0;
 state.maxReconnect = 4;
@@ -450,6 +452,31 @@ async function discoverTracks(path){
   } catch(e){
     showAlert(`❌ Failed to discover tracks: ${e.message}`, 'error', 0);
     throw e;
+  }
+}
+
+
+// Fetch subtitle as WebVTT from backend and attach as a <track> element
+async function fetchAndAttachSubtitle(path, subtitleIndex){
+  try{
+    if(!state.sessionId) return;
+    const url = `${BACKEND_URL}/subtitle?path=${encodeURIComponent(path)}&session_id=${state.sessionId}&idx=${subtitleIndex}`;
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error(`Subtitle fetch failed: ${resp.status}`);
+    const vtt = await resp.text();
+    const blob = new Blob([vtt], { type: 'text/vtt' });
+    const blobUrl = URL.createObjectURL(blob);
+    // Remove existing subtitle tracks
+    Array.from(video.querySelectorAll('track')).forEach(t => t.remove());
+    const track = document.createElement('track');
+    track.kind = 'subtitles';
+    track.src = blobUrl;
+    track.mode = 'showing';
+    video.appendChild(track);
+    return track;
+  } catch(e){
+    console.warn('Subtitle attach failed:', e.message);
+    return null;
   }
 }
 
@@ -640,7 +667,14 @@ async function loadFile(){
     (tracks.subtitles || []).forEach((track, idx) => {
       const opt = document.createElement('option');
       opt.value = idx;
-      opt.textContent = track.title || track.language || `Subtitle ${idx}`;
+      const title = track.title || track.language || `Subtitle ${idx}`;
+      // if backend marked subtitle as non-text (image-based), show note and disable
+      if(track.is_text === false){
+        opt.textContent = `${title} (image-based, not supported)`;
+        opt.disabled = true;
+      } else {
+        opt.textContent = title;
+      }
       subtitleSelect.appendChild(opt);
     });
     subtitleSelect.value = "-1";
@@ -650,6 +684,8 @@ async function loadFile(){
     fileStatus.textContent = `${path} — Select tracks and click "Apply"`;
     
     showAlert('✅ File loaded, select tracks below', 'success', 3000);
+    // enable controls now that tracks and duration are known
+    setPlaybackState(true);
     
   } catch(e){
     setPlaybackState(false);
@@ -685,11 +721,26 @@ async function startPlayback(){
     // Set stream URL after backend has been notified to play / seek
     // Cache-bust URL with timestamp to avoid browser caching old /stream responses
     const streamUrl = `${BACKEND_URL}/stream?path=${encodeURIComponent(state.currentPath)}&session_id=${state.sessionId}&_t=${Date.now()}`;
-    video.src = streamUrl;
+    // If subtitle selected and supported, fetch and attach VTT before playing
+    if(subIdx !== -1){
+      const subTrack = (await discoverTracks(state.currentPath)).subtitles?.[subIdx];
+      if(subTrack && subTrack.is_text !== false){
+        await fetchAndAttachSubtitle(state.currentPath, subIdx).catch(()=>{});
+      }
+    }
     
     // Start polling for accurate position
     startStatusPolling();
     
+    // Attach stream only if not already attached (avoid reopening stream)
+    if(!state.isStreamAttached){
+      video.src = streamUrl;
+      state.isStreamAttached = true;
+    }
+
+    // Start polling for accurate position
+    startStatusPolling();
+
     // Play video element and enable controls
     setPlaybackState(true);
     updatePlayPauseUI();
@@ -760,6 +811,26 @@ clearBtn.addEventListener('click', () => {
 
 applyTracksBtn.addEventListener('click', startPlayback);
 
+// If user applies tracks while already streaming, attach subtitle track only and request play
+applyTracksBtn.addEventListener('click', async () => {
+  if(!state.isStreamAttached){
+    return startPlayback();
+  }
+  const audioIdx = parseInt(audioSelect.value);
+  const subIdx = parseInt(subtitleSelect.value);
+  try{
+    await selectTracks(audioIdx, subIdx);
+    // send play to ensure backend resumes
+    await sendControl('play');
+    // if subtitle selected, fetch and attach
+    if(subIdx !== -1){
+      await fetchAndAttachSubtitle(state.currentPath, subIdx);
+    }
+  }catch(e){
+    console.warn('Apply tracks while streaming failed', e);
+  }
+});
+
 // Playback controls
 playPause.addEventListener('click', async () => {
   if(state.isPlaying) await pausePlayback();
@@ -827,19 +898,24 @@ video.addEventListener('loadedmetadata', () => {
   updateTimeUI();
 });
 
+// Debounced error handler to avoid transient false-positive alerts
+let _videoErrorTimeout = null;
 video.addEventListener('error', () => {
-  // Map MediaError codes to human-readable messages
-  const errorCode = video.error?.code;
-  const errorMap = {
-    1: 'Media loading aborted',
-    2: 'Network error',
-    3: 'Media decode error',
-    4: 'Media format not supported'
-  };
-  const errorMsg = errorMap[errorCode] || `Video error (code ${errorCode})`;
-  showAlert(`❌ ${errorMsg}`, 'error', 0);
-  // Attempt to recover the stream automatically
-  attemptStreamReconnect();
+  if(_videoErrorTimeout) clearTimeout(_videoErrorTimeout);
+  _videoErrorTimeout = setTimeout(() => {
+    // Map MediaError codes to human-readable messages
+    const errorCode = video.error?.code;
+    const errorMap = {
+      1: 'Media loading aborted',
+      2: 'Network error',
+      3: 'Media decode error',
+      4: 'Media format not supported'
+    };
+    const errorMsg = errorMap[errorCode] || `Video error (code ${errorCode})`;
+    // Only show alert if playback is not expected to be transient
+    showAlert(`❌ ${errorMsg}`, 'error', 0);
+    attemptStreamReconnect();
+  }, 600);
 });
 
 async function attemptStreamReconnect(){
