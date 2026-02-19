@@ -1,3 +1,17 @@
+# Video Player
+
+## Overview
+
+This little project aims to stream local media (mp4, mkv and maybe avi formats) to a webapp using a python backend to handle the codification logic. The use case is simple: one user activate the python backend, opens the html frontend, selects a media and watches it throught the provided frontend webapp. There will be no concurrent accesses to the backend API's from multiple clients. 
+
+---
+
+## Frontend Architecture
+
+TODO
+
+---
+
 ## Backend Architecture
 
 The `video-streamer.py` backend is designed for single-client, reactive streaming:
@@ -52,6 +66,9 @@ Note: the project requires the system binaries `ffmpeg` and `ffprobe` (installed
 From inside the `videoPlayer` folder (ensure the venv is active):
 
 ```bash
+# optional: change MEDIA_ROOT default value with the following command
+# export MEDIA_ROOT=/path/to/media
+
 source .venv/bin/activate && python video-streamer.py
 ```
 

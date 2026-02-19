@@ -4,6 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Video Player</title>
+
+
+
 <style>
   :root{
     --bg:#141414;
@@ -12,6 +15,8 @@
     --muted:#b3b3b3;
     --brand:#e50914;
     --brandHover:#f6121d;
+    --success:#4CAF50;
+    --error:#f44336;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -32,7 +37,7 @@
   .sub{color:var(--muted); font-weight:500; font-size:12px}
   .badge{background:var(--brand); padding:4px 8px; border-radius:8px; font-size:12px}
 
-  main{padding:0 20px 20px; display:grid; gap:16px}
+  main{padding:0 20px 20px; display:grid; gap:16px; flex:1}
 
   .card{
     background:linear-gradient(180deg,#171717,#121212);
@@ -46,21 +51,48 @@
     display:flex; align-items:center; justify-content:space-between;
     padding:12px 14px; border-bottom:1px solid #1d1d1d; background:#101010;
     gap:10px;
+    flex-wrap:wrap;
   }
   .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
   .pill{
-    background:#0d0d0d; border:1px solid #2b2b2b; border-radius:999px; padding:6px 10px; color:#ddd; font-size:12px
+    background:#0d0d0d; border:1px solid #2b2b2b; border-radius:999px; padding:6px 10px; color:#ddd; font-size:12px;
+    max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .btn{
     background:var(--brand); border:none; color:white; font-weight:700;
     padding:8px 12px; border-radius:10px; cursor:pointer;
     transition:transform .06s ease, background .2s ease;
   }
-  .btn:hover{ background:var(--brandHover) }
-  .btn:active{ transform:scale(.98) }
+  .btn:hover:not(:disabled){ background:var(--brandHover) }
+  .btn:active:not(:disabled){ transform:scale(.98) }
+  .btn:disabled{ opacity:0.5; cursor:not-allowed }
   .btn.ghost{
     background:#222; color:#eee; border:1px solid #2b2b2b; font-weight:600;
   }
+  .btn.small{ padding:6px 10px; font-size:12px }
+  
+  select, input[type="text"]{
+    background:#0d0d0d; border:1px solid #2b2b2b; border-radius:8px;
+    padding:8px 10px; color:var(--text); font-size:14px;
+    font-family:inherit;
+  }
+  select:disabled, input:disabled{ opacity:0.5; cursor:not-allowed }
+
+  /* Alert messages */
+  .alert{
+    padding:12px 14px; border-radius:8px; font-size:14px; margin:8px 0;
+  }
+  .alert.error{ background:#8b0000; color:#ffcccc; border:1px solid #f44336 }
+  .alert.success{ background:#155724; color:#c6efce; border:1px solid var(--success) }
+  .alert.info{ background:#1d3c5c; color:#b8daff; border:1px solid #0c5460 }
+
+  /* Loading spinner */
+  .spinner{
+    display:inline-block; width:14px; height:14px; border:2px solid #333; border-top-color:var(--brand);
+    border-radius:50%; animation:spin .6s linear infinite; margin-right:6px;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
   input[type="file"]{display:none}
 
   .card-body{padding:0; position:relative}
@@ -99,12 +131,15 @@
   }
   .bar{display:flex; align-items:center; gap:10px; justify-content:space-between}
   .left, .right{display:flex; align-items:center; gap:8px}
-  .time{font-variant-numeric:tabular-nums; font-weight:600}
+  .time{font-variant-numeric:tabular-nums; font-weight:600; min-width:110px}
   .vol{width:120px}
 
   footer{padding:0 20px 20px; color:#8a8a8a; font-size:12px}
 </style>
 </head>
+
+
+
 <body>
   <header>
     <div class="branding">
@@ -114,30 +149,52 @@
         <div class="sub">Select a media and enjoy it 🎬</div>
       </div>
     </div>
-    <div class="badge">Local</div>
+    <div class="badge" id="sessionBadge">Loading...</div>
   </header>
 
   <main>
+    <!-- Alert area for errors and messages -->
+    <div id="alertContainer" style="max-width:1200px; margin:0 auto; width:100%"></div>
+
     <section class="card">
-      <div class="card-header">
-        <div class="row" style="flex:1">
-          <label class="btn ghost" for="file">📁 Choose video</label>
-          <input id="file" type="file" accept="video/*" />
-          <button id="clear" class="btn ghost">✖︎ Empty</button>
-          <span id="fileInfo" class="pill">No file</span>
+      <!-- File/Track Selection -->
+      <div class="card-header" style="flex-direction:column; align-items:flex-start; gap:12px">
+        <div style="width:100%">
+          <div class="row" style="flex:1">
+            <label style="font-weight:600; white-space:nowrap">📁 Select Media:</label>
+            <select id="pathSelect" style="flex:1; min-width:200px">
+              <option value="">-- Choose a file or enter a custom path --</option>
+            </select>
+            <input type="text" id="pathInput" placeholder="Or paste absolute path here..." style="flex:1; min-width:250px">
+            <button id="loadBtn" class="btn">Load</button>
+            <button id="clearBtn" class="btn ghost">Clear</button>
+          </div>
+          <div id="fileStatus" class="pill" style="margin-top:8px">No file selected</div>
         </div>
-        <div class="row">
-          <button id="pip" class="btn ghost" title="Picture in Picture">🗗 PiP</button>
-          <button id="dlSubs" class="btn ghost" title="Carica sottotitoli .vtt">⤒ Subtitles</button>
-          <input id="subs" type="file" accept=".vtt,text/vtt" style="display:none" />
+
+        <!-- Track Selection (populated after /tracks call) -->
+        <div id="tracksPanel" style="width:100%; display:none">
+          <div class="row" style="gap:16px; flex-wrap:wrap">
+            <div>
+              <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px">🔊 Audio Track</label>
+              <select id="audioSelect" style="min-width:150px">
+                <option value="-1">-- No audio --</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:4px">📝 Subtitles</label>
+              <select id="subtitleSelect" style="min-width:150px">
+                <option value="-1">None</option>
+              </select>
+            </div>
+            <button id="applyTracksBtn" class="btn small" style="align-self:flex-end">Apply Tracks</button>
+          </div>
         </div>
       </div>
 
       <div class="card-body">
         <div class="player-wrap" id="playerWrap">
-          <video id="video" preload="metadata" crossorigin="anonymous">
-            <!-- traccia sottotitoli opzionale -->
-          </video>
+          <video id="video" preload="metadata" crossorigin="anonymous"></video>
           <div class="big-play" id="bigOverlay"><div class="btn">▶</div></div>
 
           <!-- Controls -->
@@ -145,17 +202,23 @@
             <input type="range" class="progress" id="progress" min="0" max="1000" value="0" step="1">
             <div class="bar">
               <div class="left">
-                <button class="btn" id="playPause">⏯ Reproduce</button>
+                <button class="btn" id="playPause">⏯ Play</button>
                 <button class="btn ghost" id="back10">⏪ 10s</button>
                 <button class="btn ghost" id="fwd10">⏩ 10s</button>
                 <span class="time" id="time">00:00 / 00:00</span>
               </div>
               <div class="right">
-                <select id="rate" class="pill" title="Velocità">
-                  <option>0.5×</option><option>0.75×</option><option selected>1×</option>
-                  <option>1.25×</option><option>1.5×</option><option>1.75×</option><option>2×</option>
+                <select id="rate" class="pill" title="Playback speed">
+                  <option value="0.5">0.5×</option>
+                  <option value="0.75">0.75×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.25">1.25×</option>
+                  <option value="1.5">1.5×</option>
+                  <option value="1.75">1.75×</option>
+                  <option value="2">2×</option>
                 </select>
                 <input type="range" class="vol" id="volume" min="0" max="1" step="0.01" value="1" title="Volume">
+                <button class="btn ghost" id="pip" title="Picture in Picture">🗗 PiP</button>
                 <button class="btn ghost" id="fullscreen">⛶ Fullscreen</button>
               </div>
             </div>
@@ -167,10 +230,23 @@
   </main>
 
   <footer>
-    Shortcuts: <code>Space</code> play/pause • <code>←</code>/<code>→</code> ±10s • <code>F</code> or double click on the video for fullscreen.
+    Shortcuts: <code>Space</code> play/pause • <code>←</code>/<code>→</code> ±10s • <code>F</code> fullscreen • <code>M</code> mute
   </footer>
 
+
+
 <script>
+// ============ CONSTANTS & CONFIGURATION ============
+const BACKEND_URL = 'http://localhost:5000';
+const STATUS_POLL_INTERVAL = 250;  // ms
+const API_TIMEOUT = 10000;  // ms
+const DEMO_PATHS = [
+  '~/Movies/sample.mp4',
+  '~/Desktop/video.mkv'
+];
+
+
+// ============ UTILITY FUNCTIONS ============
 const $ = sel => document.querySelector(sel);
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 const fmt = s => {
@@ -179,6 +255,27 @@ const fmt = s => {
   return (h? String(h).padStart(2,"0")+":" : "") + String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0");
 };
 
+
+// ============ STATE MANAGEMENT ============
+const state = {
+  sessionId: null,
+  currentPath: null,
+  selectedAudio: null,
+  selectedSubtitle: null,
+  isPlaying: false,
+  currentTime: 0,
+  duration: 0,
+  playbackRate: 1,
+  statusPollingId: null,
+  isSeeking: false,
+  lastStatusTime: 0
+};
+// reconnect attempts for stream recovery
+state.reconnectAttempts = 0;
+state.maxReconnect = 4;
+
+
+// ============ DOM ELEMENTS ============
 const video = $("#video");
 const progress = $("#progress");
 const timeEl = $("#time");
@@ -189,126 +286,570 @@ const volume = $("#volume");
 const rate = $("#rate");
 const fullscreen = $("#fullscreen");
 const bigOverlay = $("#bigOverlay");
-const fileInput = $("#file");
-const fileInfo = $("#fileInfo");
-const clearBtn = $("#clear");
-const pipBtn = $("#pip");
-const subsBtn = $("#dlSubs");
-const subsInput = $("#subs");
 const playerWrap = $("#playerWrap");
+const pathSelect = $("#pathSelect");
+const pathInput = $("#pathInput");
+const loadBtn = $("#loadBtn");
+const clearBtn = $("#clearBtn");
+const fileStatus = $("#fileStatus");
+const tracksPanel = $("#tracksPanel");
+const audioSelect = $("#audioSelect");
+const subtitleSelect = $("#subtitleSelect");
+const applyTracksBtn = $("#applyTracksBtn");
+const sessionBadge = $("#sessionBadge");
+const alertContainer = $("#alertContainer");
+const pipBtn = $("#pip");
 
-let seekingByUser = false;
 
-function setPausedUI(paused){
-  playPause.textContent = paused ? "▶ Reproduce" : "⏸ Pause";
-  bigOverlay.classList.toggle("show", paused);
-}
-function updateTimeUI(){
-  const cur = video.currentTime || 0;
-  const dur = isFinite(video.duration) ? video.duration : 0;
-  timeEl.textContent = `${fmt(cur)} / ${fmt(dur||0)}`;
-  if(!seekingByUser && isFinite(dur) && dur>0){
-    progress.value = Math.round(cur/dur*1000);
+// ============ ALERT/NOTIFICATION SYSTEM ============
+function showAlert(message, type = 'info', duration = 5000){
+  const alertEl = document.createElement('div');
+  alertEl.className = `alert ${type}`;
+  alertEl.textContent = message;
+  alertEl.style.animation = 'fadeIn 0.3s ease';
+  alertContainer.appendChild(alertEl);
+  
+  if(duration > 0){
+    setTimeout(() => {
+      alertEl.style.animation = 'fadeOut 0.3s ease';
+      setTimeout(() => alertEl.remove(), 300);
+    }, duration);
   }
-}
-function loadFile(file){
-  if(!file) return;
-  const url = URL.createObjectURL(file);
-  // Rimuovi eventuali tracce precedenti
-  [...video.querySelectorAll("track")].forEach(t=>t.remove());
-  video.src = url;
-  video.play().catch(()=>{}); // l'autoplay potrebbe essere bloccato: va bene comunque
-  fileInfo.textContent = `${file.name} (${(file.size/1048576).toFixed(2)} MB)`;
+  return alertEl;
 }
 
-/* ----------- Eventi UI ----------- */
-playPause.addEventListener("click", () => { if(video.paused) video.play(); else video.pause(); });
-back10.addEventListener("click", () => { video.currentTime = Math.max(0, video.currentTime - 10); });
-fwd10.addEventListener("click", () => { video.currentTime = Math.min(video.duration||Infinity, video.currentTime + 10); });
-volume.addEventListener("input", () => video.volume = parseFloat(volume.value));
-rate.addEventListener("change", () => video.playbackRate = parseFloat(rate.value));
-fullscreen.addEventListener("click", () => {
-  if(document.fullscreenElement) document.exitFullscreen();
-  else playerWrap.requestFullscreen().catch(()=>{});
-});
-playerWrap.addEventListener("dblclick", ()=> fullscreen.click());
+// Add fade animations
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px) } to { opacity: 1; transform: translateY(0) } }
+  @keyframes fadeOut { from { opacity: 1; transform: translateY(0) } to { opacity: 0; transform: translateY(-10px) } }
+`;
+document.head.appendChild(style);
 
-progress.addEventListener("input", () => {
-  if(!isFinite(video.duration)) return;
-  seekingByUser = true;
-  const t = (parseInt(progress.value)/1000)*(video.duration||0);
-  timeEl.textContent = `${fmt(t)} / ${fmt(video.duration||0)}`;
-});
-progress.addEventListener("change", () => {
-  if(!isFinite(video.duration)) return;
-  const t = (parseInt(progress.value)/1000)*(video.duration||0);
-  video.currentTime = t;
-  seekingByUser = false;
-});
 
-video.addEventListener("play", ()=> setPausedUI(false));
-video.addEventListener("pause", ()=> setPausedUI(true));
-video.addEventListener("timeupdate", updateTimeUI);
-video.addEventListener("loadedmetadata", updateTimeUI);
-video.addEventListener("volumechange", ()=>{ volume.value = video.volume; });
+// ============ API HELPER FUNCTIONS ============
+async function fetchAPI(endpoint, options = {}){
+  try {
+    const url = new URL(endpoint, BACKEND_URL);
+    // Use AbortController to properly cancel fetch on timeout
+    const controller = new AbortController();
+    const signal = controller.signal;
 
-document.addEventListener("keydown", (e)=>{
-  if(e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT")) return;
-  if(e.code === "Space"){ e.preventDefault(); playPause.click(); }
-  if(e.code === "ArrowLeft"){ back10.click(); }
-  if(e.code === "ArrowRight"){ fwd10.click(); }
-  if(e.code === "KeyF" || e.key === "f" || e.key === "F"){
-    e.preventDefault();
-    if(document.fullscreenElement){
-      document.exitFullscreen();
-    } else{
-      playerWrap.requestFullscreen().catch(()=>{});
+    // Only set JSON content-type when sending a body
+    const headers = { ...(options.headers || {}) };
+    if (options.body && !('Content-Type' in headers)) {
+      headers['Content-Type'] = 'application/json';
     }
+
+    const fetchOnce = async () => {
+      const fetchPromise = fetch(url, {
+        ...options,
+        headers,
+        signal
+      });
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+      try {
+        const resp = await fetchPromise;
+        return resp;
+      } catch (err) {
+        if (err.name === 'AbortError') throw new Error('API timeout');
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    // retry logic with exponential backoff for transient errors
+    const maxRetries = options._retries ?? 2;
+    let attempt = 0;
+    let response;
+    while (true) {
+      try {
+        response = await fetchOnce();
+        // retry on 502/503/504
+        if ([502,503,504].includes(response.status) && attempt < maxRetries) {
+          attempt++;
+          const wait = 200 * Math.pow(2, attempt);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        break;
+      } catch (err) {
+        if (attempt >= maxRetries) throw err;
+        attempt++;
+        const wait = 200 * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, wait));
+      }
+    }
+    
+    if(!response.ok){
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    // For stream endpoint, return response directly (not JSON)
+    if(endpoint.includes('/stream')) return response;
+    return await response.json();
+  } catch(e){
+    console.error(`API error [${endpoint}]:`, e);
+    throw e;
   }
+}
+
+
+// ============ SESSION MANAGEMENT ============
+async function initSession(){
+  try {
+    showAlert('🔄 Creating/validating session...', 'info', 2000);
+    // Use consistent storage key per backend URL (prevents collision with multiple instances)
+    const storageKey = `video_player_session_${BACKEND_URL}`;
+    
+    // Reuse session from localStorage when possible
+    const stored = localStorage.getItem(storageKey);
+    if(stored){
+      try {
+        const resp = await fetchAPI(`/session?session_id=${encodeURIComponent(stored)}`);
+        if(resp && resp.session_id === stored){
+          state.sessionId = stored;
+          sessionBadge.textContent = `Session: ${state.sessionId.slice(0,8)}...`;
+          showAlert('✅ Session restored', 'success', 2000);
+          return state.sessionId;
+        }
+      } catch(e){
+        // fallthrough to create new session
+      }
+    }
+
+    const data = await fetchAPI('/session', { method: 'POST' });
+    state.sessionId = data.session_id;
+    localStorage.setItem(storageKey, state.sessionId);
+    sessionBadge.textContent = `Session: ${state.sessionId.slice(0,8)}...`;
+    showAlert('✅ Session created', 'success', 2000);
+    return state.sessionId;
+  } catch(e){
+    showAlert(`❌ Failed to create session: ${e.message}`, 'error', 0);
+    throw e;
+  }
+}
+
+
+// ============ TRACK DISCOVERY ============
+async function discoverTracks(path){
+  try {
+    showAlert(`🔍 Discovering tracks for: ${path}...`, 'info', 0);
+    const data = await fetchAPI(`/tracks?path=${encodeURIComponent(path)}`);
+    showAlert('✅ Tracks discovered', 'success', 2000);
+    
+    return data;
+  } catch(e){
+    showAlert(`❌ Failed to discover tracks: ${e.message}`, 'error', 0);
+    throw e;
+  }
+}
+
+
+// ============ TRACK SELECTION ============
+async function selectTracks(audioIndex, subtitleIndex){
+  try {
+    if(!state.sessionId) throw new Error('No session');
+    
+    showAlert('⚙️ Applying track selection...', 'info', 0);
+    const data = await fetchAPI('/select_tracks', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: state.sessionId,
+        audio_index: audioIndex === -1 ? null : audioIndex,
+        subtitle_index: subtitleIndex === -1 ? null : subtitleIndex
+      })
+    });
+    
+    state.selectedAudio = audioIndex;
+    state.selectedSubtitle = subtitleIndex;
+    showAlert('✅ Tracks applied', 'success', 2000);
+    return data;
+  } catch(e){
+    showAlert(`❌ Failed to select tracks: ${e.message}`, 'error', 0);
+    throw e;
+  }
+}
+
+
+// ============ PLAYBACK CONTROL ============
+async function sendControl(action, params = {}){
+  try {
+    if(!state.sessionId) throw new Error('No session');
+    
+    const payload = { action, session_id: state.sessionId, ...params };
+    const data = await fetchAPI('/control', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    
+    return data;
+  } catch(e){
+    console.warn(`Control action '${action}' failed:`, e.message);
+    // Don't show alert for every control call (too noisy)
+  }
+}
+
+
+// ============ STATUS POLLING ============
+async function pollStatus(){
+  try {
+    if(!state.sessionId) return;
+    
+    const data = await fetchAPI(`/status?session_id=${state.sessionId}`);
+    if(!data.state) return;
+    
+    const st = data.state;
+    
+    // Update state from server
+    state.isPlaying = st.is_playing;
+    state.currentTime = st.computed_current_time || st.current_time || 0;
+    state.playbackRate = st.playback_rate || 1;
+    
+    // Update UI (position, playback state)
+    updateTimeUI();
+    updatePlayPauseUI();
+    
+  } catch(e){
+    // Silent fail for polling (network issues are temporary)
+    // console.warn('Status poll failed:', e.message);
+  }
+}
+
+
+function startStatusPolling(){
+  if(state.statusPollingId) clearInterval(state.statusPollingId);
+  state.statusPollingId = setInterval(pollStatus, STATUS_POLL_INTERVAL);
+}
+
+function stopStatusPolling(){
+  if(state.statusPollingId){
+    clearInterval(state.statusPollingId);
+    state.statusPollingId = null;
+  }
+}
+
+
+// ============ UI UPDATE FUNCTIONS ============
+function updateTimeUI(){
+  const cur = state.currentTime || 0;
+  const dur = state.duration || 0;
+  timeEl.textContent = `${fmt(cur)} / ${fmt(dur)}`;
+  
+  if(!state.isSeeking && dur > 0){
+    progress.value = Math.round((cur / dur) * 1000);
+  }
+}
+
+function updatePlayPauseUI(){
+  playPause.textContent = state.isPlaying ? "⏸ Pause" : "▶ Play";
+  bigOverlay.classList.toggle("show", !state.isPlaying);
+}
+
+function setLoadingState(loading){
+  loadBtn.disabled = loading;
+  pathSelect.disabled = loading;
+  pathInput.disabled = loading;
+}
+
+function setPlaybackState(enabled){
+  playPause.disabled = !enabled;
+  back10.disabled = !enabled;
+  fwd10.disabled = !enabled;
+  progress.disabled = !enabled;
+  rate.disabled = !enabled;
+  fullscreen.disabled = !enabled;
+  pipBtn.disabled = !enabled;
+}
+
+
+// ============ FILE LOADING ============
+async function loadFile(){
+  const path = pathInput.value.trim() || pathSelect.value;
+  
+  if(!path){
+    showAlert('❌ Please select or enter a file path', 'error');
+    return;
+  }
+  // Basic client-side validation
+  if(typeof path !== 'string' || path.length < 3){
+    showAlert('❌ Invalid path', 'error');
+    return;
+  }
+  
+  state.currentPath = path;
+  setLoadingState(true);
+  setPlaybackState(false);
+  stopStatusPolling();
+  
+  try {
+    // Clear previous stream
+    video.src = '';
+    
+    // Discover tracks and duration
+    const tracks = await discoverTracks(path);
+    
+    // Update duration from backend response if available
+    if(tracks.duration !== null && tracks.duration !== undefined){
+      state.duration = tracks.duration;
+    }
+    
+    // Populate track dropdowns
+    audioSelect.innerHTML = '<option value="-1">-- No audio --</option>';
+    (tracks.audio || []).forEach((track, idx) => {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = track.title || track.language || `Audio ${idx}`;
+      audioSelect.appendChild(opt);
+    });
+    audioSelect.value = tracks.audio?.length ? "0" : "-1";
+    
+    subtitleSelect.innerHTML = '<option value="-1">None</option>';
+    (tracks.subtitles || []).forEach((track, idx) => {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = track.title || track.language || `Subtitle ${idx}`;
+      subtitleSelect.appendChild(opt);
+    });
+    subtitleSelect.value = "-1";
+    
+    // Show tracks panel
+    tracksPanel.style.display = 'block';
+    fileStatus.textContent = `${path} — Select tracks and click "Apply"`;
+    
+    showAlert('✅ File loaded, select tracks below', 'success', 3000);
+    
+  } catch(e){
+    setPlaybackState(false);
+    // Alert already shown by discoverTracks
+  } finally {
+    setLoadingState(false);
+  }
+}
+
+async function startPlayback(){
+  if(!state.currentPath){
+    showAlert('❌ No file selected', 'error');
+    return;
+  }
+  
+  try {
+    // Select tracks if needed
+    const audioIdx = parseInt(audioSelect.value);
+    const subIdx = parseInt(subtitleSelect.value);
+    
+    if(state.selectedAudio !== audioIdx || state.selectedSubtitle !== subIdx){
+      await selectTracks(audioIdx, subIdx);
+    }
+    // Tell backend to play first, then set video src to avoid minor timing race
+    await sendControl('play');
+
+    // Set stream URL after backend has been notified to play
+    // Cache-bust URL with timestamp to avoid browser caching old /stream responses
+    const streamUrl = `${BACKEND_URL}/stream?path=${encodeURIComponent(state.currentPath)}&session_id=${state.sessionId}&_t=${Date.now()}`;
+    video.src = streamUrl;
+    
+    // Start polling for accurate position
+    startStatusPolling();
+    
+    // Play video element
+    video.play().catch(e => console.warn('Video play failed:', e));
+    
+  } catch(e){
+    showAlert(`❌ Failed to start playback: ${e.message}`, 'error', 0);
+  }
+}
+
+async function pausePlayback(){
+  try {
+    await sendControl('pause');
+    video.pause();
+  } catch(e){
+    showAlert(`❌ Failed to pause: ${e.message}`, 'error');
+  }
+}
+
+async function seekTo(time){
+  state.isSeeking = true;
+  try {
+    await sendControl('seek', { time: Math.max(0, time) });
+    state.currentTime = time;
+    updateTimeUI();
+  } catch(e){
+    showAlert(`❌ Seek failed: ${e.message}`, 'error');
+  } finally {
+    state.isSeeking = false;
+  }
+}
+
+async function setPlaybackRate(rate){
+  try {
+    const rateNum = parseFloat(rate);
+    await sendControl('set_rate', { rate: rateNum });
+    state.playbackRate = rateNum;
+    // Sync video element playback rate with backend
+    video.playbackRate = rateNum;
+  } catch(e){
+    showAlert(`❌ Failed to set rate: ${e.message}`, 'error');
+  }
+}
+
+
+// ============ EVENT LISTENERS ============
+
+// File selection
+loadBtn.addEventListener('click', loadFile);
+pathInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter') loadFile();
 });
 
-fileInput.addEventListener("change", e => loadFile(e.target.files?.[0]) );
-clearBtn.addEventListener("click", ()=>{
+clearBtn.addEventListener('click', () => {
+  state.currentPath = null;
+  state.selectedAudio = null;
+  state.selectedSubtitle = null;
+  video.src = '';
   video.pause();
-  video.removeAttribute("src");
-  video.load();
-  fileInfo.textContent = "Nessun file";
-  setPausedUI(true);
+  pathInput.value = '';
+  pathSelect.value = '';
+  fileStatus.textContent = 'No file selected';
+  tracksPanel.style.display = 'none';
+  stopStatusPolling();
+  setPlaybackState(false);
+  showAlert('Cleared', 'info', 2000);
+});
+
+applyTracksBtn.addEventListener('click', startPlayback);
+
+// Playback controls
+playPause.addEventListener('click', async () => {
+  if(state.isPlaying) await pausePlayback();
+  else await startPlayback();
+});
+
+back10.addEventListener('click', () => seekTo(Math.max(0, state.currentTime - 10)));
+fwd10.addEventListener('click', () => seekTo(state.currentTime + 10));
+
+progress.addEventListener('input', () => {
+  state.isSeeking = true;
+  const newTime = (parseInt(progress.value) / 1000) * state.duration;
+  // Update currentTime for scrub preview while dragging
+  state.currentTime = newTime;
   updateTimeUI();
 });
 
-/* ----------- Picture-in-Picture ----------- */
-pipBtn.addEventListener("click", async ()=>{
-  try{
+progress.addEventListener('change', () => {
+  const newTime = (parseInt(progress.value) / 1000) * state.duration;
+  seekTo(newTime);
+});
+
+volume.addEventListener('input', () => {
+  video.volume = parseFloat(volume.value);
+});
+
+rate.addEventListener('change', () => {
+  setPlaybackRate(rate.value);
+});
+
+fullscreen.addEventListener('click', () => {
+  if(document.fullscreenElement) document.exitFullscreen();
+  else playerWrap.requestFullscreen().catch(() => {});
+});
+
+playerWrap.addEventListener('dblclick', () => fullscreen.click());
+
+pipBtn.addEventListener('click', async () => {
+  try {
     if(document.pictureInPictureElement) await document.exitPictureInPicture();
     else await video.requestPictureInPicture();
-  }catch(e){ alert("PiP non disponibile in questo browser."); }
+  } catch(e){
+    showAlert('PiP not available', 'error', 3000);
+  }
 });
 
-/* ----------- Caricamento Sottotitoli .vtt ----------- */
-subsBtn.addEventListener("click", ()=> subsInput.click());
-subsInput.addEventListener("change", async (e)=>{
-  const file = e.target.files?.[0];
-  if(!file) return;
-  const url = URL.createObjectURL(file);
-  const track = document.createElement("track");
-  track.kind = "subtitles";
-  track.label = file.name.replace(/\.[^/.]+$/,"");
-  track.srclang = "it";
-  track.src = url;
-  track.default = true;
-  video.appendChild(track);
-  // Forza caricamento traccia
-  video.textTracks[0] && (video.textTracks[0].mode = "showing");
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  
+  if(e.code === 'Space'){ e.preventDefault(); playPause.click(); }
+  if(e.code === 'ArrowLeft'){ back10.click(); }
+  if(e.code === 'ArrowRight'){ fwd10.click(); }
+  if(e.code === 'KeyF'){ e.preventDefault(); fullscreen.click(); }
+  if(e.code === 'KeyM'){ e.preventDefault(); volume.value = volume.value == 0 ? 1 : 0; volume.dispatchEvent(new Event('input')); }
 });
 
-/* ----------- Init ----------- */
-setPausedUI(true);
-updateTimeUI();
-setInterval(updateTimeUI, 250);
-video.volume = 1;
-rate.value = "1×";
-rate.dispatchEvent(new Event("change"));
+// HTML5 video events (for duration and error handling)
+video.addEventListener('loadedmetadata', () => {
+  state.duration = video.duration;
+  updateTimeUI();
+});
+
+video.addEventListener('error', () => {
+  // Map MediaError codes to human-readable messages
+  const errorCode = video.error?.code;
+  const errorMap = {
+    1: 'Media loading aborted',
+    2: 'Network error',
+    3: 'Media decode error',
+    4: 'Media format not supported'
+  };
+  const errorMsg = errorMap[errorCode] || `Video error (code ${errorCode})`;
+  showAlert(`❌ ${errorMsg}`, 'error', 0);
+  // Attempt to recover the stream automatically
+  attemptStreamReconnect();
+});
+
+async function attemptStreamReconnect(){
+  // Iterative reconnection loop (avoid recursion to prevent stack overflow)
+  let attempt = 0;
+  while(attempt < state.maxReconnect) {
+    attempt++;
+    const wait = 500 * Math.pow(2, attempt);
+    showAlert(`🔁 Attempting to reconnect stream (attempt ${attempt}/${state.maxReconnect})...`, 'info', wait);
+    await new Promise(r => setTimeout(r, wait));
+    
+    try {
+      // Try to reapply tracks and request play, then reset video src
+      const audioIdx = parseInt(audioSelect.value);
+      const subIdx = parseInt(subtitleSelect.value);
+      await selectTracks(audioIdx, subIdx).catch(()=>{});
+      await sendControl('play');
+      // Cache-bust the reconnect attempt URL
+      const streamUrl = `${BACKEND_URL}/stream?path=${encodeURIComponent(state.currentPath)}&session_id=${state.sessionId}&_t=${Date.now()}`;
+      video.src = streamUrl;
+      await video.play().catch(()=>{});
+      // Resume polling
+      startStatusPolling();
+      state.reconnectAttempts = 0;
+      showAlert('✅ Reconnected', 'success', 2000);
+      return;
+    } catch(e){
+      // Continue to next attempt
+      continue;
+    }
+  }
+  // All attempts exhausted
+  showAlert('❌ Stream reconnection failed after multiple attempts', 'error', 0);
+}
+
+
+// ============ INITIALIZATION ============
+async function init(){
+  try {
+    await initSession();
+    setPlaybackState(false);
+    updatePlayPauseUI();
+    updateTimeUI();
+  } catch(e){
+    showAlert('❌ Failed to initialize app', 'error', 0);
+  }
+}
+
+// Start app when DOM is ready
+document.readyState === 'loading' ? 
+  document.addEventListener('DOMContentLoaded', init) : 
+  init();
 </script>
 </body>
 </html>

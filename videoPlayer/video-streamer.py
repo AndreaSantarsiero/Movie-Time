@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-# Configuration: allowed directory for playback (security)
-MEDIA_ROOT = os.getenv('MEDIA_ROOT', os.path.expanduser('~'))  # default to home directory
+# Configuration: allowed directory for playback (optional security feature)
+MEDIA_ROOT = os.getenv('MEDIA_ROOT', os.path.expanduser('/'))  # default to root directory
 
 
 def _validate_path(video_path):
