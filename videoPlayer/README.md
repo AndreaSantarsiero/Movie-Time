@@ -2,25 +2,48 @@
 
 ## Overview
 
-This little project aims to stream local media (mp4, mkv and maybe avi formats) to a webapp using a python backend to handle the codification logic. The use case is simple: one user activate the python backend, opens the html frontend, selects a media and watches it throught the provided frontend webapp. There will be no concurrent accesses to the backend API's from multiple clients. 
+Questo progetto fornisce un semplice server locale che trascodifica e streamma file multimediali (es. mp4, mkv) verso una web-app. L'architettura è pensata per l'uso su una singola macchina o in una rete di fiducia: un utente avvia il backend Python, apre il frontend HTML locale, seleziona un file multimediale e lo riproduce nel browser. Il backend usa `ffprobe` per scoprire tracce e durata, e `ffmpeg` per produrre un MP4 frammentato in streaming.
+
+Il design privilegia la reattività (play/pause/seek senza dover riaprire la connessione) e una gestione per-sessione dello stato di riproduzione. Il porgetto attualmente supporta solamente sistemi Ubuntu e macOS
 
 ---
 
 ## Frontend Architecture
 
-TODO
+Il frontend è una single page application contenuta in `video-player.html`. Le responsabilità principali sono:
+
+- Gestire la sessione con il backend (`/session`).
+- Consentire all'utente di inserire o scegliere un percorso file e richiedere i metadati via `/tracks` (audio/subtitle/durata).
+- Applicare le scelte di tracce con `/select_tracks` e inviare comandi di controllo (`/control`): `play`, `pause`, `seek`, `set_rate`.
+- Avviare la riproduzione impostando `video.src` su `/stream?path=...&session_id=...` e aggiornare la UI facendo polling su `/status` per ottenere `computed_current_time`.
+
+Il player include controlli standard (play/pause, seek, volume, playback rate, PiP, fullscreen) e gestisce tentativi di riconnessione se lo stream si interrompe.
 
 ---
 
 ## Backend Architecture
 
-The `video-streamer.py` backend is designed for single-client, reactive streaming:
+Il backend è implementato in `video-streamer.py` con Flask e i seguenti ruoli:
 
-- **Continuous streaming**: Video encoding and streaming happen concurrently without interruption
-- **Pause/Resume without reconnection**: Pausing uses OS-level backpressure (ffmpeg blocking on stdout) instead of killing the process. The HTTP connection stays open for instant resume
-- **Accurate position tracking**: Wall-clock time tracking (with pause duration compensation) provides accurate playback position via `computed_current_time` in `/status` endpoint
-- **Per-session state**: Each client gets an isolated session with independent playback state (tracks, position, rate, pause status)
-- **CORS-enabled**: Full cross-origin support for frontend integration
+- Validazione dei percorsi locali tramite la variabile d'ambiente `MEDIA_ROOT`. Per sicurezza, impostare `MEDIA_ROOT` a una cartella limitata prima di esporre il server.
+- Analisi del file con `ffprobe` per estrarre tracce audio/sottotitoli e la durata.
+- Gestione per-sessione dello stato (`sessions`) con lock per la mutua esclusione: `is_playing`, `current_time`, `playback_rate`, tracce selezionate e timestamp per calcolare la posizione reale (`computed_current_time`).
+- Generazione dello stream: quando il client richiede `/stream`, il server avvia `ffmpeg` (output su `pipe:1` con `-movflags frag_keyframe+empty_moov+default_base_moof`) e inoltra i byte MP4 al browser. La pausa è implementata sfruttando il backpressure: quando la sessione è in pausa il processo di lettura non consuma stdout, rallentando `ffmpeg` senza chiudere la connessione.
+
+Endpoint principali:
+
+- `POST /session` e `GET /session?session_id=...` — crea/verifica sessioni.
+- `GET /tracks?path=...` — esegue `ffprobe` e restituisce `audio`, `subtitles`, `duration`.
+- `POST /select_tracks` — imposta `selected_audio`/`selected_subtitle` nella sessione.
+- `POST /control` — azioni: `play`, `pause`, `seek` (campo `time`), `set_rate` (campo `rate`).
+- `GET /status?session_id=...` — restituisce stato sessione + `computed_current_time` quando in riproduzione.
+- `GET /stream?path=...&session_id=...` — stream MP4 generato da `ffmpeg`.
+
+Note operative:
+
+- `ffmpeg` e `ffprobe` devono essere presenti nel `PATH` (installare via apt/brew).
+- Impostare `MEDIA_ROOT` per limitare l'accesso ai file e ridurre rischi di esposizione del filesystem.
+- Per problemi di compatibilità o prestazioni, valutare l'uso di HLS/DASH o di un sistema basato su file temporanei per sottotitoli esterni.
 
 ---
 

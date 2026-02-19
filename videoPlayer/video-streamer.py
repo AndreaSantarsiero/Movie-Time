@@ -77,7 +77,8 @@ def _create_session():
             'stream_start_time': None,      # wall-clock when stream started (set on first play)
             'pause_start_time': None,       # wall-clock when last pause initiated
             'total_paused_duration': 0.0,   # accumulated pause duration (seconds)
-            'stream_initial_seek': 0.0      # initial seek time when stream started
+            'stream_initial_seek': 0.0,     # initial seek time when stream started
+            'needs_restart': False          # signal generator to restart ffmpeg with new params
         }
     logger.info(f"Session created: {session_id}")
     return session_id
@@ -134,6 +135,15 @@ def _run_ffprobe(video_path):
         return None
 
 
+def _is_supported_extension(path):
+    supported = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v'}
+    try:
+        ext = Path(path).suffix.lower()
+        return ext in supported
+    except Exception:
+        return False
+
+
 def discover_tracks(video_path):
     """Discover audio and subtitle tracks using ffprobe. Returns dict.
 
@@ -152,24 +162,28 @@ def discover_tracks(video_path):
     if info and 'streams' in info:
         for s in info['streams']:
             kind = s.get('codec_type')
-            lang = s.get('tags', {}).get('language') if s.get('tags') else None
-            title = s.get('tags', {}).get('title') if s.get('tags') else None
-            
+            tags = s.get('tags') or {}
+            lang = tags.get('language') or tags.get('LANGUAGE')
+            title = tags.get('title') or tags.get('TITLE') or tags.get('handler_name') or tags.get('NAME')
+
+            # Fall back to more descriptive defaults using codec or index when available
             if kind == 'audio':
+                default_title = f"Audio {audio_idx} ({s.get('codec_name') or 'audio'})"
                 entry = {
                     'index': audio_idx,  # stream-relative index for this audio stream
                     'codec': s.get('codec_name'),
                     'language': lang or 'und',
-                    'title': title or f'Audio track {audio_idx}'
+                    'title': title or lang or default_title
                 }
                 audio_tracks.append(entry)
                 audio_idx += 1
             elif kind == 'subtitle':
+                default_title = f"Subtitle {subtitle_idx} ({s.get('codec_name') or 'subtitle'})"
                 entry = {
                     'index': subtitle_idx,  # stream-relative index for this subtitle stream
                     'codec': s.get('codec_name'),
                     'language': lang or 'und',
-                    'title': title or f'Subtitle track {subtitle_idx}'
+                    'title': title or lang or default_title
                 }
                 subtitle_tracks.append(entry)
                 subtitle_idx += 1
@@ -222,6 +236,10 @@ def tracks():
     if not is_valid:
         logger.warning(f"Invalid path requested: {video_path}")
         return jsonify({'error': 'Video not found or access denied'}), 404
+    # reject unsupported extensions early
+    if not _is_supported_extension(abs_path):
+        logger.warning(f"Unsupported extension requested: {abs_path}")
+        return jsonify({'error': 'Unsupported file type'}), 400
     logger.info(f"Discovering tracks for: {abs_path}")
     t = discover_tracks(abs_path)
     logger.info(f"Found {len(t['audio'])} audio and {len(t['subtitles'])} subtitle tracks")
@@ -255,6 +273,8 @@ def select_tracks():
             if session_state:
                 session_state['selected_audio'] = audio_index
                 session_state['selected_subtitle'] = subtitle_index
+                # signal streaming generator to restart ffmpeg with new mappings
+                session_state['needs_restart'] = True
     except Exception as e:
         logger.error(f"select_tracks error: {e}")
         return jsonify({'error': 'Internal server error'}), 500
@@ -306,6 +326,8 @@ def control():
                     session_state['stream_start_time'] = None
                     session_state['pause_start_time'] = None
                     session_state['total_paused_duration'] = 0.0
+                    # request generator to restart ffmpeg at new seek position
+                    session_state['needs_restart'] = True
                     logger.info(f"[Session {session_id}] Seeked to {session_state['current_time']:.2f}s")
                 except (ValueError, TypeError):
                     return jsonify({'error': 'time must be a number'}), 400
@@ -365,7 +387,7 @@ def status():
 
 
 
-def _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx):
+def _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx, audio_present=True):
     # Basic command; we'll transcode video to h264 and audio to aac for browser compatibility.
     cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error']
     # seek
@@ -387,26 +409,23 @@ def _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx):
             logger.warning(f"Rate {rate}x outside atempo range (0.5-2.0); applying video only")
 
     # Subtitles: attempt to burn, but handle format incompatibility gracefully
-    if subtitle_idx is not None and subtitle_idx >= 0:
-        # ffmpeg subtitles filter expects a filename, and si selects subtitle stream index
-        # Note: some embedded subtitle formats (ASS, image-based) may fail or produce artifacts
-        # For now, we attempt to burn; on error, the client can retry without subtitles
-        try:
-            # will add filter like: subtitles=video_path:si=subtitle_idx
-            vf_filters.append(f"subtitles={video_path}:si={subtitle_idx}")
-            logger.info(f"Subtitle track {subtitle_idx} will be burned into video")
-        except Exception as e:
-            logger.warning(f"Failed to add subtitle filter for track {subtitle_idx}: {e}")
-            # Continue without subtitles rather than fail completely
+    # Subtitles burning is intentionally disabled by default because many embedded
+    # subtitle formats (image-based, ASS with fonts, etc.) can cause ffmpeg to
+    # fail or produce errors when used with the subtitles filter. If needed,
+    # subtitle burn-in can be re-enabled with a safer extraction pipeline.
 
     # mapping: always map first video stream 0:v:0
     cmd += ['-map', '0:v:0']
-    # audio mapping
-    if audio_idx is not None:
-        cmd += ['-map', f'0:a:{audio_idx}']
+    # audio mapping (if audio is present)
+    if audio_present:
+        if audio_idx is not None:
+            cmd += ['-map', f'0:a:{audio_idx}']
+        else:
+            # map default audio if present
+            cmd += ['-map', '0:a:0']
     else:
-        # map default audio if present
-        cmd += ['-map', '0:a:0']
+        # no audio present: disable audio in output
+        cmd += ['-an']
 
     # codecs
     cmd += ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23']
@@ -424,7 +443,7 @@ def _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx):
 
 
 
-def generate_ffmpeg_stream(video_path, session_state):
+def generate_ffmpeg_stream(video_path, session_id, session_state):
     """Generator that runs ffmpeg with current selections and yields stdout bytes.
     
     Args:
@@ -448,65 +467,131 @@ def generate_ffmpeg_stream(video_path, session_state):
         logger.error(f"File not found: {video_path}")
         return
 
-    cmd = _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx)
-    logger.debug(f"ffmpeg command: {' '.join(cmd)}")
-    
-    proc = None
-    
-    try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        logger.info(f"ffmpeg process started (PID: {proc.pid})")
-    except FileNotFoundError:
-        logger.error("ffmpeg executable not found; ensure ffmpeg is installed and in PATH")
-        return
-    except Exception as e:
-        logger.error(f"Failed to start ffmpeg: {e}")
-        return
+    # Use ffprobe to validate available streams so we don't pass invalid map indexes to ffmpeg
+    info = _run_ffprobe(video_path) or {}
+    streams = info.get('streams', [])
+    audio_count = sum(1 for s in streams if s.get('codec_type') == 'audio')
+    # subtitle_count = sum(1 for s in streams if s.get('codec_type') == 'subtitle')
 
-    try:
-        while True:
-            # Check pause status and update accumulated pause duration
-            with session_lock:
-                is_playing = session_state.get('is_playing', False)
-                pause_start_time = session_state.get('pause_start_time')
-                
-                # If currently paused, accumulate pause duration
-                if not is_playing and pause_start_time is not None:
-                    accumulated_pause = pause_start_time
-                else:
-                    accumulated_pause = None
-            
-            # If paused: don't read from ffmpeg (backpressure), yield nothing, but keep loop alive
-            if not is_playing:
-                # Small sleep to avoid busy-wait and reduce CPU usage during pause
-                time.sleep(0.05)
-                continue
-            
-            # Playing: read and yield chunk from ffmpeg
-            chunk = proc.stdout.read(8192)
-            if not chunk:
-                logger.info(f"ffmpeg EOF reached (PID: {proc.pid})")
-                break
-            yield chunk
-            
-    except GeneratorExit:
-        logger.info(f"Stream generator closed by client (PID: {proc.pid})")
-    except Exception as e:
-        logger.error(f"Error during streaming (PID: {proc.pid}): {e}")
-    finally:
-        # Ensure ffmpeg process is properly terminated with robust cleanup
-        if proc:
+    # Validate audio index: if out of range, fallback to default (None) or mark no-audio
+    audio_present = audio_count > 0
+    if audio_idx is not None:
+        try:
+            audio_idx = int(audio_idx)
+            if audio_idx < 0 or audio_idx >= audio_count:
+                logger.warning(f"Requested audio index {audio_idx} out of range; falling back")
+                audio_idx = None
+        except Exception:
+            audio_idx = None
+
+    # For safety do not attempt to burn subtitles here (many formats cause ffmpeg to fail)
+    subtitle_idx = None
+
+    # We'll run ffmpeg in a loop so we can restart it on-demand (e.g. track change or seek)
+    proc = None
+    stderr_thread = None
+
+    while True:
+        cmd = _build_ffmpeg_cmd(video_path, start_time, rate, audio_idx, subtitle_idx, audio_present=audio_present)
+        logger.debug(f"ffmpeg command: {' '.join(cmd)}")
+
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logger.info(f"ffmpeg process started (PID: {proc.pid})")
+        except FileNotFoundError:
+            logger.error("ffmpeg executable not found; ensure ffmpeg is installed and in PATH")
+            return
+        except Exception as e:
+            logger.error(f"Failed to start ffmpeg: {e}")
+            return
+
+        # start thread to drain stderr so buffers don't block and we can log ffmpeg messages
+        def _drain_ffmpeg_stderr(p, sid):
             try:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    logger.warning(f"ffmpeg process did not terminate in time, killing (PID: {proc.pid})")
-                    proc.kill()
-                    proc.wait()
+                for line in iter(p.stderr.readline, b''):
+                    if not line:
+                        break
+                    try:
+                        logger.warning(f"[Session {sid}] ffmpeg: {line.decode(errors='ignore').strip()}")
+                    except Exception:
+                        logger.warning(f"[Session {sid}] ffmpeg (raw): {line}")
             except Exception as e:
-                logger.warning(f"Error terminating ffmpeg process (PID: {proc.pid}): {e}")
-        logger.info(f"Stream ended (PID: {proc.pid if proc else 'unknown'})")
+                logger.debug(f"stderr drain thread ended: {e}")
+
+        stderr_thread = threading.Thread(target=_drain_ffmpeg_stderr, args=(proc, session_id), daemon=True)
+        stderr_thread.start()
+
+        try:
+            # mark stream_start_time for accurate position calculations
+            with session_lock:
+                session_state['stream_start_time'] = time.time()
+                session_state['stream_initial_seek'] = start_time
+
+            while True:
+                with session_lock:
+                    is_playing = session_state.get('is_playing', False)
+                    needs_restart = session_state.get('needs_restart', False)
+
+                if needs_restart:
+                    logger.info(f"[Session {session_id}] Restart requested for ffmpeg process")
+                    # clear flag
+                    with session_lock:
+                        session_state['needs_restart'] = False
+                        # update start_time from session state current_time
+                        start_time = float(session_state.get('current_time', start_time))
+                    break  # break to restart ffmpeg with updated params
+
+                if not is_playing:
+                    time.sleep(0.05)
+                    continue
+
+                chunk = proc.stdout.read(8192)
+                if not chunk:
+                    logger.info(f"ffmpeg EOF reached (PID: {proc.pid})")
+                    return
+                yield chunk
+
+        except GeneratorExit:
+            logger.info(f"Stream generator closed by client (PID: {proc.pid})")
+            # ensure process termination below
+            break
+        except Exception as e:
+            logger.error(f"Error during streaming (PID: {proc.pid}): {e}")
+            break
+        finally:
+            # cleanup current ffmpeg process before possibly restarting
+            if proc:
+                try:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        logger.warning(f"ffmpeg process did not terminate in time, killing (PID: {proc.pid})")
+                        proc.kill()
+                        proc.wait()
+                except Exception as e:
+                    logger.warning(f"Error terminating ffmpeg process (PID: {proc.pid}): {e}")
+            if stderr_thread and stderr_thread.is_alive():
+                try:
+                    # closing proc.stderr will cause the thread loop to exit
+                    if proc and proc.stderr:
+                        proc.stderr.close()
+                except Exception:
+                    pass
+            logger.info(f"Stream ended (PID: {proc.pid if proc else 'unknown'})")
+
+        # before restarting, refresh current session parameters
+        with session_lock:
+            rate = float(session_state.get('playback_rate', rate))
+            audio_idx = session_state.get('selected_audio')
+            subtitle_idx = session_state.get('selected_subtitle')
+            # recompute whether audio is present
+            info = _run_ffprobe(video_path) or {}
+            streams = info.get('streams', [])
+            audio_count = sum(1 for s in streams if s.get('codec_type') == 'audio')
+            audio_present = audio_count > 0
+
+        # loop will recreate ffmpeg with updated start_time, rate, audio_idx
 
 
 
@@ -519,6 +604,10 @@ def stream():
     is_valid, abs_path = _validate_path(video_path)
     if not is_valid:
         return jsonify({'error': 'Video not found or access denied'}), 404
+    # reject unsupported extensions early
+    if not _is_supported_extension(abs_path):
+        logger.warning(f"Unsupported extension requested for stream: {abs_path}")
+        return jsonify({'error': 'Unsupported file type'}), 400
     
     # session_id is REQUIRED (no fallback to legacy global state)
     if not session_id:
@@ -532,7 +621,7 @@ def stream():
     logger.info(f"[Session {session_id}] Streaming requested for: {abs_path}")
     
     # Note: we stream as MP4 bytes produced by ffmpeg; browser must handle progressive mp4
-    return Response(generate_ffmpeg_stream(abs_path, session_state), mimetype='video/mp4')
+    return Response(generate_ffmpeg_stream(abs_path, session_id, session_state), mimetype='video/mp4')
 
 
 

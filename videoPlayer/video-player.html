@@ -238,7 +238,10 @@
 <script>
 // ============ CONSTANTS & CONFIGURATION ============
 const BACKEND_URL = 'http://localhost:5000';
-const STATUS_POLL_INTERVAL = 250;  // ms
+// Polling tuned for lower server load: base 2s, min 1s, max 15s
+const STATUS_POLL_INTERVAL = 2000;  // base ms
+const STATUS_POLL_MIN = 1000; // minimum interval when active
+const STATUS_POLL_MAX = 15000; // maximum backoff
 const API_TIMEOUT = 10000;  // ms
 const DEMO_PATHS = [
   '~/Movies/sample.mp4',
@@ -273,6 +276,9 @@ const state = {
 // reconnect attempts for stream recovery
 state.reconnectAttempts = 0;
 state.maxReconnect = 4;
+// polling control
+let _statusPollTimer = null;
+let _statusFailures = 0;
 
 
 // ============ DOM ELEMENTS ============
@@ -495,39 +501,63 @@ async function sendControl(action, params = {}){
 
 // ============ STATUS POLLING ============
 async function pollStatus(){
+  if(!state.sessionId) return;
   try {
-    if(!state.sessionId) return;
-    
     const data = await fetchAPI(`/status?session_id=${state.sessionId}`);
-    if(!data.state) return;
-    
-    const st = data.state;
-    
-    // Update state from server
-    state.isPlaying = st.is_playing;
-    state.currentTime = st.computed_current_time || st.current_time || 0;
-    state.playbackRate = st.playback_rate || 1;
-    
-    // Update UI (position, playback state)
-    updateTimeUI();
-    updatePlayPauseUI();
-    
+    if(data && data.state){
+      const st = data.state;
+      state.isPlaying = st.is_playing;
+      state.currentTime = st.computed_current_time || st.current_time || state.currentTime || 0;
+      state.playbackRate = st.playback_rate || state.playbackRate || 1;
+      updateTimeUI();
+      updatePlayPauseUI();
+    }
+    // success -> reset failures
+    _statusFailures = 0;
+    return true;
   } catch(e){
-    // Silent fail for polling (network issues are temporary)
-    // console.warn('Status poll failed:', e.message);
+    _statusFailures = Math.min(10, _statusFailures + 1);
+    console.warn('Status poll failed:', e.message);
+    return false;
   }
 }
 
+function _scheduleNextStatusPoll(){
+  // clear existing
+  if(_statusPollTimer) clearTimeout(_statusPollTimer);
+
+  // Exponential backoff on consecutive failures
+  const base = STATUS_POLL_INTERVAL;
+  const failureFactor = Math.pow(2, Math.max(0, _statusFailures - 1));
+  let delay = Math.min(STATUS_POLL_MAX, Math.max(STATUS_POLL_MIN, base * failureFactor));
+
+  // When paused and stable, poll less frequently
+  if(!state.isPlaying) delay = Math.max(delay, 2000);
+
+  _statusPollTimer = setTimeout(async () => {
+    const ok = await pollStatus().catch(()=>false);
+    if(!ok && _statusFailures >= 4){
+      // stop polling after repeated failures to avoid loops
+      stopStatusPolling();
+      showAlert('❌ Status polling stopped after repeated errors', 'error', 0);
+      console.error('Status polling stopped: repeated failures');
+      return;
+    }
+    // schedule next poll
+    _scheduleNextStatusPoll();
+  }, delay);
+}
 
 function startStatusPolling(){
-  if(state.statusPollingId) clearInterval(state.statusPollingId);
-  state.statusPollingId = setInterval(pollStatus, STATUS_POLL_INTERVAL);
+  stopStatusPolling();
+  _statusFailures = 0;
+  _scheduleNextStatusPoll();
 }
 
 function stopStatusPolling(){
-  if(state.statusPollingId){
-    clearInterval(state.statusPollingId);
-    state.statusPollingId = null;
+  if(_statusPollTimer){
+    clearTimeout(_statusPollTimer);
+    _statusPollTimer = null;
   }
 }
 
@@ -646,7 +676,13 @@ async function startPlayback(){
     // Tell backend to play first, then set video src to avoid minor timing race
     await sendControl('play');
 
-    // Set stream URL after backend has been notified to play
+    // If we are already playing and we are simply changing tracks, ensure
+    // the new stream starts from the current playback position to avoid
+    // restarting from 0s. Send a seek to the server before setting new src.
+    const currentPos = state.currentTime || 0;
+    await sendControl('seek', { time: currentPos }).catch(()=>{});
+
+    // Set stream URL after backend has been notified to play / seek
     // Cache-bust URL with timestamp to avoid browser caching old /stream responses
     const streamUrl = `${BACKEND_URL}/stream?path=${encodeURIComponent(state.currentPath)}&session_id=${state.sessionId}&_t=${Date.now()}`;
     video.src = streamUrl;
@@ -654,7 +690,9 @@ async function startPlayback(){
     // Start polling for accurate position
     startStatusPolling();
     
-    // Play video element
+    // Play video element and enable controls
+    setPlaybackState(true);
+    updatePlayPauseUI();
     video.play().catch(e => console.warn('Video play failed:', e));
     
   } catch(e){
@@ -781,7 +819,11 @@ document.addEventListener('keydown', (e) => {
 
 // HTML5 video events (for duration and error handling)
 video.addEventListener('loadedmetadata', () => {
-  state.duration = video.duration;
+  // Prefer duration discovered via ffprobe (tracks endpoint).
+  // Only fall back to the HTMLMediaElement duration if the backend did not provide one.
+  if(!state.duration || state.duration <= 0){
+    state.duration = video.duration;
+  }
   updateTimeUI();
 });
 
